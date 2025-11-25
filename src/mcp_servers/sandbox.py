@@ -36,6 +36,26 @@ from datetime import datetime, timedelta
 import math
 """
 
+# Allowed modules for sandboxed import
+ALLOWED_MODULES = {
+    "numpy", "np",
+    "pandas", "pd",
+    "math",
+    "datetime",
+    "scipy", "scipy.stats",
+    "statistics",
+}
+
+
+def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+    """Safe import that only allows pre-approved modules."""
+    # Check if this is an allowed module
+    if name not in ALLOWED_MODULES and not any(name.startswith(m + ".") for m in ALLOWED_MODULES):
+        raise ImportError(f"Module '{name}' is not allowed in sandbox. "
+                         f"Allowed: {', '.join(sorted(ALLOWED_MODULES))}")
+    return __builtins__["__import__"](name, globals, locals, fromlist, level)
+
+
 # Safe builtins for execution
 SAFE_BUILTINS = {
     'abs': abs,
@@ -71,6 +91,7 @@ SAFE_BUILTINS = {
     'True': True,
     'False': False,
     'None': None,
+    '__import__': _safe_import,  # Allow controlled imports
 }
 
 

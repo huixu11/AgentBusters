@@ -220,10 +220,10 @@ print(f"CAGR: {cagr:.4f}")
 
     def test_safe_builtins_security(self):
         """Test that dangerous operations are restricted."""
-        from mcp_servers.sandbox import SAFE_BUILTINS
+        from mcp_servers.sandbox import SAFE_BUILTINS, ALLOWED_MODULES
 
-        # These should NOT be available
-        dangerous = ["__import__", "open", "eval", "exec", "compile", "globals", "locals"]
+        # These should NOT be available (except __import__ which is now controlled)
+        dangerous = ["open", "eval", "exec", "compile", "globals", "locals"]
         for func in dangerous:
             assert func not in SAFE_BUILTINS, f"{func} should not be in SAFE_BUILTINS"
 
@@ -231,6 +231,15 @@ print(f"CAGR: {cagr:.4f}")
         safe = ["len", "sum", "print", "range", "list", "dict", "str", "int", "float"]
         for func in safe:
             assert func in SAFE_BUILTINS, f"{func} should be in SAFE_BUILTINS"
+
+        # __import__ should be available but controlled
+        assert "__import__" in SAFE_BUILTINS, "__import__ should be in SAFE_BUILTINS (controlled)"
+
+        # Verify allowed modules list
+        assert "numpy" in ALLOWED_MODULES
+        assert "pandas" in ALLOWED_MODULES
+        assert "os" not in ALLOWED_MODULES
+        assert "subprocess" not in ALLOWED_MODULES
 
 
 class TestTemporalLockingE2E:
