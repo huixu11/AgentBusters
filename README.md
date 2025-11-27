@@ -107,23 +107,29 @@ export MCP_SANDBOX_URL=http://localhost:8003
 
 ## Docker Deployment
 
-> MCP server directories are not in this repo, so use the targeted commands below instead of `docker-compose up` for all services.
+MCP servers build from `src/mcp_servers/*.py` using the provided Dockerfiles. Use targeted commands instead of a blanket `docker-compose up`.
 
-### Purple Agent
+### Build images
 ```bash
-docker compose build --no-cache purple-agent
-docker compose up -d purple-agent         # listens on host port 8001
-docker compose logs -f purple-agent       # watch logs
+docker compose build --no-cache sec-edgar-mcp yahoo-finance-mcp mcp-sandbox purple-agent
 ```
+
+### Run MCP + Purple together
+```bash
+docker compose up -d sec-edgar-mcp yahoo-finance-mcp mcp-sandbox purple-agent
+docker compose logs -f purple-agent
+```
+External ports: 8101/8102/8103 -> 8000 inside. Internal URLs: `http://sec-edgar-mcp:8000`, `http://yahoo-finance-mcp:8000`, `http://mcp-sandbox:8000`.
 
 ### Green Agent (calling Purple)
 - Purple must be running.
-- Skip MCP deps (missing).
 - From another container on the same network:
 ```bash
- docker compose run --rm --no-deps cio-agent cio-agent evaluate --task-id FAB_050 --date 2024-01-01 --output summary --purple-endpoint
- http://fab-plus-purple-agent:8001
+docker compose run --rm --no-deps cio-agent \
+  cio-agent evaluate --task-id FAB_050 --date 2024-01-01 --output summary \
+  --purple-endpoint http://fab-plus-purple-agent:8001
 ```
+- From host to purple container: use `--purple-endpoint http://localhost:8001`.
 
 ## Configuration
 
