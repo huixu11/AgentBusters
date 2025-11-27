@@ -65,7 +65,7 @@ uv pip install -e ".[dev]"
 cio-agent list-tasks
 
 # Run evaluation on a specific task
-cio-agent evaluate --task-id FAB_001 --agent-url http://localhost:8001
+cio-agent evaluate --task-id FAB_001 --purple-endpoint http://localhost:8001
 
 # Run the NVIDIA Q3 FY2026 test
 python scripts/test_nvidia.py
@@ -107,28 +107,22 @@ export MCP_SANDBOX_URL=http://localhost:8003
 
 ## Docker Deployment
 
-### Full Stack
+> MCP server directories are not in this repo, so use the targeted commands below instead of `docker-compose up` for all services.
 
+### Purple Agent
 ```bash
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
+docker compose build --no-cache purple-agent
+docker compose up -d purple-agent         # listens on host port 8001
+docker compose logs -f purple-agent       # watch logs
 ```
 
-### Individual Services
-
+### Green Agent (calling Purple)
+- Purple must be running.
+- Skip MCP deps (missing).
+- From another container on the same network:
 ```bash
-# Build and run Purple Agent only
-docker build -f Dockerfile.purple -t purple-agent .
-docker run -p 8001:8001 \
-  -e OPENAI_API_KEY=$OPENAI_API_KEY \
-  -e MCP_EDGAR_URL=http://host.docker.internal:8001 \
-  purple-agent
+ docker compose run --rm --no-deps cio-agent cio-agent evaluate --task-id FAB_050 --date 2024-01-01 --output summary --purple-endpoint
+ http://fab-plus-purple-agent:8001
 ```
 
 ## Configuration
