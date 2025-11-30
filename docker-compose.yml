@@ -13,16 +13,13 @@ services:
       - NOISE_INJECTION_RATIO=0.3
       - TEMPORAL_LOCK_ENABLED=true
       - FASTMCP_TRANSPORT=http
-    command: >
-      fastmcp run "src/mcp_servers/sec_edgar.py:create_edgar_server"
-      --transport http --host 0.0.0.0 --port 8000
     volumes:
       - edgar-cache:/data/edgar_cache
     ports:
       - "8101:8000"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:8000/ > /dev/null || exit 1"]
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('localhost',8000),2); s.close()"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -38,16 +35,13 @@ services:
       - TIME_MACHINE_ENABLED=true
       - LOOKAHEAD_DETECTION=true
       - FASTMCP_TRANSPORT=http
-    command: >
-      fastmcp run "src/mcp_servers/yahoo_finance.py:create_yahoo_finance_server"
-      --transport http --host 0.0.0.0 --port 8000
     volumes:
       - yfinance-cache:/data/yf_cache
     ports:
       - "8102:8000"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:8000/ > /dev/null || exit 1"]
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('localhost',8000),2); s.close()"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -62,9 +56,6 @@ services:
       - EXECUTION_TIMEOUT=30
       - PRELOAD_LIBS=numpy,pandas,scipy,yfinance
       - FASTMCP_TRANSPORT=http
-    command: >
-      fastmcp run "src/mcp_servers/sandbox.py:create_sandbox_server"
-      --transport http --host 0.0.0.0 --port 8000
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -75,7 +66,7 @@ services:
       - "8103:8000"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:8000/ > /dev/null || exit 1"]
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('localhost',8000),2); s.close()"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -87,6 +78,9 @@ services:
       dockerfile: Dockerfile
     container_name: fab-plus-orchestrator
     environment:
+      - MCP_EDGAR_URL=http://sec-edgar-mcp:8000/mcp
+      - MCP_YFINANCE_URL=http://yahoo-finance-mcp:8000/mcp
+      - MCP_SANDBOX_URL=http://mcp-sandbox:8000/mcp
       - MCP_EDGAR_URL=http://sec-edgar-mcp:8000/mcp
       - MCP_YFINANCE_URL=http://yahoo-finance-mcp:8000/mcp
       - MCP_SANDBOX_URL=http://mcp-sandbox:8000/mcp
@@ -123,8 +117,6 @@ services:
       - MCP_EDGAR_URL=http://sec-edgar-mcp:8000/mcp
       - MCP_YFINANCE_URL=http://yahoo-finance-mcp:8000/mcp
       - MCP_SANDBOX_URL=http://mcp-sandbox:8000/mcp
-    volumes:
-      - ./finance-agent/data:/app/data:ro
     ports:
       - "8010:8001"
     healthcheck:

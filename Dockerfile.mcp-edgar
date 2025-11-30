@@ -3,7 +3,10 @@ WORKDIR /app
 
 RUN pip install fastmcp edgartools pandas numpy
 
-COPY src/mcp_servers/sec_edgar.py /app/sec_edgar.py
+# Copy source so we can import with module path
+COPY src/ ./src/
+ENV PYTHONPATH=/app/src
+RUN apt-get update && apt-get install -y --no-install-recommends wget && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 8000
-CMD ["python", "/app/sec_edgar.py"]
+CMD ["fastmcp", "run", "src/mcp_servers/sec_edgar.py:create_edgar_server", "--transport", "http", "--host", "0.0.0.0", "--port", "8000"]
