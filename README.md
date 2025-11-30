@@ -107,29 +107,66 @@ export MCP_SANDBOX_URL=http://localhost:8003
 
 ## Docker Deployment
 
-MCP servers build from `src/mcp_servers/*.py` using the provided Dockerfiles. Use targeted commands instead of a blanket `docker-compose up`.
+MCP servers build from `src/mcp_servers/*.py` using the provided Dockerfiles.
 
-### Build images
+### Build images (once)
 ```bash
-docker compose build --no-cache sec-edgar-mcp yahoo-finance-mcp mcp-sandbox purple-agent
+docker compose build
 ```
 
-### Run MCP + Purple together
+### Start MCP + Purple (background)
 ```bash
-docker compose up -d sec-edgar-mcp yahoo-finance-mcp mcp-sandbox purple-agent
-docker compose logs -f purple-agent
+docker compose up -d
 ```
-External ports: 8101/8102/8103 -> 8000 inside. Internal URLs: `http://sec-edgar-mcp:8000`, `http://yahoo-finance-mcp:8000`, `http://mcp-sandbox:8000`.
+External ports (default compose): Purple `8010->8001`, EDGAR `8001->8000`, YFinance `8002->8000`, Sandbox `8003->8000`.
 
-### Green Agent (calling Purple)
-- Purple must be running.
-- From another container on the same network:
+### One-shot CSV batch run (headless)
+Calls Purple `/analyze`; remove `--purple-endpoint` to use mock agent.
+```bash
+docker compose run --rm --user root cio-agent \
+  sh -c "python -m scripts.run_csv_eval \
+    --dataset-path /app/data/public.csv \
+    --simulation-date 2024-12-31 \
+    --difficulty medium \
+    --output /data/results/summary.json \
+    --purple-endpoint http://fab-plus-purple-agent:8001 \
+    && cat /data/results/summary.json"
+```
+
+Persist results to host:
+```bash
+mkdir -p results
+docker compose run --rm --user root -v ${PWD}/results:/data/results cio-agent \
+  python -m scripts.run_csv_eval \
+    --dataset-path /app/data/public.csv \
+    --simulation-date 2024-12-31 \
+    --difficulty medium \
+    --output /data/results/summary.json \
+    --purple-endpoint http://fab-plus-purple-agent:8001
+cat results/summary.json
+```
+
+Options:
+- `--difficulty` repeatable filter (easy/medium/hard/expert)
+- `--limit N` cap rows
+- `--seed` fix randomness (ticker/year substitution)
+- `--no-debate` skip debate phase
+- `--purple-endpoint` call Purple `/analyze` (e.g., `http://fab-plus-purple-agent:8001`); omit to use mock
+- `--output` target JSON; if `/data/results` not writable, use `--user root` or `/tmp/summary.json`
+
+### Green Agent single-task via Purple
+Purple must be running. From compose network:
 ```bash
 docker compose run --rm --no-deps cio-agent \
   cio-agent evaluate --task-id FAB_050 --date 2024-01-01 --output summary \
   --purple-endpoint http://fab-plus-purple-agent:8001
 ```
-- From host to purple container: use `--purple-endpoint http://localhost:8001`.
+From host to Purple: `--purple-endpoint http://localhost:8010`
+
+### Stop services
+```bash
+docker compose down
+```
 
 ## Configuration
 
