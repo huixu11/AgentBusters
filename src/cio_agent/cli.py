@@ -8,6 +8,7 @@ Provides command-line interface for:
 """
 
 import asyncio
+import random
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -21,7 +22,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from cio_agent.task_generator import DynamicTaskGenerator, FABDataset
 from cio_agent.orchestrator import MockAgentClient
 from cio_agent.evaluator import ComprehensiveEvaluator, EvaluationReporter
-from cio_agent.models import TaskCategory, TaskDifficulty
+from cio_agent.models import TaskDifficulty
+from cio_agent.datasets.csv_provider import CsvFinanceDatasetProvider
 
 app = typer.Typer(
     name="cio-agent",
@@ -62,6 +64,16 @@ def evaluate(
         "--file", "-f",
         help="Output file path"
     ),
+    dataset_path: Optional[Path] = typer.Option(
+        None,
+        "--dataset-path",
+        help="Path to external CSV dataset (e.g., data/public.csv)"
+    ),
+    difficulty: Optional[list[TaskDifficulty]] = typer.Option(
+        None,
+        "--difficulty",
+        help="Optional difficulty filter when selecting a random task",
+    ),
 ):
     """
     Run a single evaluation on a FAB task.
@@ -80,8 +92,10 @@ def evaluate(
     ))
 
     async def run_evaluation():
+        dataset_provider = CsvFinanceDatasetProvider(dataset_path) if dataset_path else None
+
         # Initialize components
-        task_generator = DynamicTaskGenerator()
+        task_generator = DynamicTaskGenerator(dataset_provider=dataset_provider)
         evaluator = ComprehensiveEvaluator()
         agent = MockAgentClient(agent_id="test-agent", model=agent_model)
 
@@ -92,10 +106,20 @@ def evaluate(
         ) as progress:
             # Generate task
             progress.add_task(description="Generating dynamic task...", total=None)
-            task = await task_generator.generate_task(task_id, sim_date)
+            chosen_id = task_id
+            if task_id.lower() == "random":
+                candidates = task_generator.fab_dataset.questions
+                if difficulty:
+                    candidates = [q for q in candidates if q.difficulty in difficulty]
+                if not candidates:
+                    console.print("[red]No tasks match the given filters[/red]")
+                    raise typer.Exit(1)
+                chosen_id = random.choice(candidates).template_id
+
+            task = await task_generator.generate_task(chosen_id, sim_date)
 
             if not task:
-                console.print(f"[red]Error: Task template '{task_id}' not found[/red]")
+                console.print(f"[red]Error: Task template '{chosen_id}' not found[/red]")
                 raise typer.Exit(1)
 
             # Run evaluation
@@ -168,6 +192,16 @@ def generate_task(
         "--date", "-d",
         help="Simulation date (YYYY-MM-DD)"
     ),
+    dataset_path: Optional[Path] = typer.Option(
+        None,
+        "--dataset-path",
+        help="Path to external CSV dataset (e.g., data/public.csv)"
+    ),
+    difficulty: Optional[list[TaskDifficulty]] = typer.Option(
+        None,
+        "--difficulty",
+        help="Optional difficulty filter when selecting a random task",
+    ),
 ):
     """
     Generate a dynamic task variant without running evaluation.
@@ -178,8 +212,20 @@ def generate_task(
         sim_date = datetime(datetime.now().year - 1, 1, 1)
 
     async def generate():
-        generator = DynamicTaskGenerator()
-        return await generator.generate_task(task_id, sim_date)
+        dataset_provider = CsvFinanceDatasetProvider(dataset_path) if dataset_path else None
+        generator = DynamicTaskGenerator(dataset_provider=dataset_provider)
+
+        chosen_id = task_id
+        if task_id.lower() == "random":
+            candidates = generator.fab_dataset.questions
+            if difficulty:
+                candidates = [q for q in candidates if q.difficulty in difficulty]
+            if not candidates:
+                console.print("[red]No tasks match the given filters[/red]")
+                raise typer.Exit(1)
+            chosen_id = random.choice(candidates).template_id
+
+        return await generator.generate_task(chosen_id, sim_date)
 
     task = asyncio.run(generate())
 

@@ -120,6 +120,16 @@ docker-compose logs -f
 docker-compose down
 ```
 
+#### MCP endpoints and connectivity tips
+- MCP servers run on HTTP with `/mcp` prefix: EDGAR `http://localhost:8001/mcp`, Yahoo `http://localhost:8002/mcp`, Sandbox `http://localhost:8003/mcp`.
+- Root (`/`) and `/health` return 404 by design; use SSE ping instead:
+  - Host: `curl.exe -H "Accept: text/event-stream" -H "x-session-id: test" http://localhost:8001/mcp` (same for 8002/8003)
+  - Inside container (avoids quoting issues): `docker exec -it fab-plus-edgar curl -H "Accept: text/event-stream" -H "x-session-id: test" http://localhost:8000/mcp`
+- List tools via FastMCP inspect (inside containers):
+  - `docker exec -it fab-plus-edgar fastmcp inspect "/app/src/mcp_servers/sec_edgar.py:create_edgar_server"`
+  - `docker exec -it fab-plus-yfinance fastmcp inspect "/app/src/mcp_servers/yahoo_finance.py:create_yahoo_finance_server"`
+  - `docker exec -it fab-plus-sandbox fastmcp inspect "/app/src/mcp_servers/sandbox.py:create_sandbox_server"`
+
 ### Individual Services
 
 ```bash
@@ -130,6 +140,58 @@ docker run -p 8001:8001 \
   -e MCP_EDGAR_URL=http://host.docker.internal:8001 \
   purple-agent
 ```
+
+### Batch Evaluation (run all CSV tasks headless)
+
+Use the provided CSV dataset (mounted at `/app/data/public.csv`) to run a full, headless Green Agent evaluation and write aggregated results to a volume:
+
+```bash
+# Run full CSV batch evaluation and print summary (use root to ensure write access)
+docker compose run --rm --user root cio-agent \
+  sh -c "python -m scripts.run_csv_eval \
+    --dataset-path /app/data/public.csv \
+    --simulation-date 2024-12-31 \
+    --difficulty medium \
+    --output /data/results/summary.json \
+    && cat /data/results/summary.json"
+```
+
+What it does:
+- Loads all rows from the CSV (optional `--difficulty` filter, `--limit N`, `--seed` for reproducibility).
+- Generates dynamic tasks via `DynamicTaskGenerator` (ticker/year substitutions with fixed seed if provided).
+- Runs full evaluation with `ComprehensiveEvaluator` (debate optional via `--no-debate`).
+- Records per-task Alpha Score/cost and writes an aggregated JSON summary to `/data/results/summary.json`.
+- Continues on individual task errors and logs them instead of aborting.
+
+Inspect outputs:
+```bash
+# Recommended one-shot (prints summary immediately):
+docker compose run --rm --user root cio-agent \
+  sh -c "python -m scripts.run_csv_eval --dataset-path /app/data/public.csv --simulation-date 2024-12-31 --difficulty medium --output /data/results/summary.json && cat /data/results/summary.json"
+
+# Persist to host:
+mkdir -p results
+docker compose run --rm --user root -v ${PWD}/results:/data/results cio-agent \
+  python -m scripts.run_csv_eval --dataset-path /app/data/public.csv --simulation-date 2024-12-31 --difficulty medium --output /data/results/summary.json
+cat results/summary.json
+```
+Note: `docker compose run` creates a fresh container each time; `/tmp` is per-run. Reading `/data/results/summary.json` in a separate `run` only works if you wrote it to a persistent volume (e.g., the host bind above). If `/data/results` is not writable, use `--user root` or `--output /tmp/summary.json` within the same one-shot command.
+
+Options:
+- `--difficulty` can be repeated to filter (easy/medium/hard/expert).
+- `--limit N` to cap number of rows.
+- `--seed` to fix randomness (ticker/year substitution).
+- `--no-debate` to skip debate phase.
+- `--output` target JSON path; if `/data/results` not writable, use `--user root` or `--output /tmp/summary.json`.
+
+Notes on fields:
+- `debate_multiplier` comes from `EvaluationResult.debate_result`.
+- `cost` comes from `EvaluationResult.cost_breakdown.total_cost_usd` (may be null if not available).
+
+Notes:
+- Dependencies (EDGAR/YFinance/Sandbox MCP) should be up via `docker compose up -d`.
+- API keys are read from `.env` (e.g., `OPENAI_API_KEY`). Anthropic is optional.
+- Purple baseline is exposed at `http://localhost:8010/health` (see MCP tips above).
 
 ## Configuration
 
