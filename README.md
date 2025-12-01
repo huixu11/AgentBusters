@@ -107,91 +107,70 @@ export MCP_SANDBOX_URL=http://localhost:8003
 
 ## Docker Deployment
 
-MCP servers build from `src/mcp_servers/*.py` using the provided Dockerfiles. Use targeted commands instead of a blanket `docker-compose up`.
+MCP servers build from `src/mcp_servers/*.py` using the provided Dockerfiles.
 
-### Build images
+### Build images (once)
 ```bash
-docker compose build --no-cache sec-edgar-mcp yahoo-finance-mcp mcp-sandbox purple-agent
+docker compose build
+# After code changes, rebuild without cache to pick up source edits:
+docker compose build --no-cache
+# Build specific services (common set):
+# docker compose build sec-edgar-mcp yahoo-finance-mcp mcp-sandbox purple-agent cio-agent
+# Without cache:
+# docker compose build --no-cache sec-edgar-mcp yahoo-finance-mcp mcp-sandbox purple-agent cio-agent
 ```
 
-#### MCP endpoints and connectivity tips
-- MCP servers run on HTTP with `/mcp` prefix: EDGAR `http://localhost:8101/mcp`, Yahoo `http://localhost:8102/mcp`, Sandbox `http://localhost:8103/mcp`.
-- Root (`/`) and `/health` return 404 by design; use SSE ping instead:
-  - Host: `curl -H "Accept: text/event-stream" -H "x-session-id: test" http://localhost:8101/mcp` (same for 8102/8103)
-  - Inside container (avoids quoting issues): `docker exec -it fab-plus-edgar curl -H "Accept: text/event-stream" -H "x-session-id: test" http://localhost:8000/mcp`
-- List tools via FastMCP inspect (inside containers):
-  - `docker exec -it fab-plus-edgar fastmcp inspect "/app/src/mcp_servers/sec_edgar.py:create_edgar_server"`
-  - `docker exec -it fab-plus-yfinance fastmcp inspect "/app/src/mcp_servers/yahoo_finance.py:create_yahoo_finance_server"`
-  - `docker exec -it fab-plus-sandbox fastmcp inspect "/app/src/mcp_servers/sandbox.py:create_sandbox_server"`
-
-### Run MCP + Purple together
+### Start MCP + Purple (background)
 ```bash
-docker compose up -d sec-edgar-mcp yahoo-finance-mcp mcp-sandbox purple-agent
-docker compose logs -f purple-agent
+docker compose up -d
 ```
-External ports: 8101/8102/8103 -> 8000 inside. Internal URLs: `http://sec-edgar-mcp:8000`, `http://yahoo-finance-mcp:8000`, `http://mcp-sandbox:8000`.
+External ports (default compose): Purple `8010->8001`, EDGAR `8001->8000`, YFinance `8002->8000`, Sandbox `8003->8000`.
 
-### Green Agent (calling Purple)
-- Purple must be running.
-- From another container on the same network:
+Check the status
+```bash
+docker ps --filter "name=fab-plus"
+```
+
+### One-shot CSV batch run (headless)
+Calls Purple `/analyze`; remove `--purple-endpoint` to use mock agent.
+```bash
+docker compose run --rm --user root cio-agent sh -c "python -m scripts.run_csv_eval --dataset-path /app/data/public.csv --simulation-date 2024-12-31 --difficulty medium --output /data/results/summary.json --purple-endpoint http://fab-plus-purple-agent:8001 && cat /data/results/summary.json"
+```
+
+Persist results to host:
+```bash
+mkdir -p results
+docker compose run --rm --user root -v ${PWD}/results:/data/results cio-agent \
+  python -m scripts.run_csv_eval \
+    --dataset-path /app/data/public.csv \
+    --simulation-date 2024-12-31 \
+    --difficulty medium \
+    --output /data/results/summary.json \
+    --purple-endpoint http://fab-plus-purple-agent:8001
+cat results/summary.json
+```
+
+Options:
+- `--difficulty` repeatable filter (easy/medium/hard/expert)
+- `--limit N` cap rows
+- `--seed` fix randomness (ticker/year substitution)
+- `--no-debate` skip debate phase
+- `--purple-endpoint` call Purple `/analyze` (e.g., `http://fab-plus-purple-agent:8001`); omit to use mock
+- `--output` target JSON; if `/data/results` not writable, use `--user root` or `/tmp/summary.json`
+
+### Green Agent single-task via Purple
+Purple must be running. From compose network:
 ```bash
 docker compose run --rm --no-deps cio-agent \
   cio-agent evaluate --task-id FAB_050 --date 2024-01-01 --output summary \
   --purple-endpoint http://fab-plus-purple-agent:8001
 ```
-- From host to purple container: use `--purple-endpoint http://localhost:8001`.
+From host to Purple: `--purple-endpoint http://localhost:8010`
 
-### Batch Evaluation (run all CSV tasks headless)
-
-Use the provided CSV dataset (mounted at `/app/data/public.csv`) to run a full, headless Green Agent evaluation and write aggregated results to a volume:
-
+### Stop services
 ```bash
-# Run full CSV batch evaluation and print summary (use root to ensure write access)
-docker compose run --rm --user root cio-agent \
-  sh -c "python -m scripts.run_csv_eval \
-    --dataset-path /app/data/public.csv \
-    --simulation-date 2024-12-31 \
-    --difficulty medium \
-    --output /data/results/summary.json \
-    && cat /data/results/summary.json"
+docker compose down
 ```
-
-What it does:
-- Loads all rows from the CSV (optional `--difficulty` filter, `--limit N`, `--seed` for reproducibility).
-- Generates dynamic tasks via `DynamicTaskGenerator` (ticker/year substitutions with fixed seed if provided).
-- Runs full evaluation with `ComprehensiveEvaluator` (debate optional via `--no-debate`).
-- Records per-task Alpha Score/cost and writes an aggregated JSON summary to `/data/results/summary.json`.
-- Continues on individual task errors and logs them instead of aborting.
-
-Inspect outputs:
-```bash
-# Recommended one-shot (prints summary immediately):
-docker compose run --rm --user root cio-agent \
-  sh -c "python -m scripts.run_csv_eval --dataset-path /app/data/public.csv --simulation-date 2024-12-31 --difficulty medium --output /data/results/summary.json && cat /data/results/summary.json"
-
-# Persist to host:
-mkdir -p results
-docker compose run --rm --user root -v ${PWD}/results:/data/results cio-agent \
-  python -m scripts.run_csv_eval --dataset-path /app/data/public.csv --simulation-date 2024-12-31 --difficulty medium --output /data/results/summary.json
-cat results/summary.json
-```
-Note: `docker compose run` creates a fresh container each time; `/tmp` is per-run. Reading `/data/results/summary.json` in a separate `run` only works if you wrote it to a persistent volume (e.g., the host bind above). If `/data/results` is not writable, use `--user root` or `--output /tmp/summary.json` within the same one-shot command.
-
-Options:
-- `--difficulty` can be repeated to filter (easy/medium/hard/expert).
-- `--limit N` to cap number of rows.
-- `--seed` to fix randomness (ticker/year substitution).
-- `--no-debate` to skip debate phase.
-- `--output` target JSON path; if `/data/results` not writable, use `--user root` or `--output /tmp/summary.json`.
-
-Notes on fields:
-- `debate_multiplier` comes from `EvaluationResult.debate_result`.
-- `cost` comes from `EvaluationResult.cost_breakdown.total_cost_usd` (may be null if not available).
-
-Notes:
-- Dependencies (EDGAR/YFinance/Sandbox MCP) should be up via `docker compose up -d`.
-- API keys are read from `.env` (e.g., `OPENAI_API_KEY`). Anthropic is optional.
-- Purple baseline is exposed at `http://localhost:8010/health` (see MCP tips above).
 
 ## Configuration
 

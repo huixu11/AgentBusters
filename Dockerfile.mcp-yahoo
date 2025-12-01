@@ -3,8 +3,9 @@ WORKDIR /app
 
 RUN pip install fastmcp yfinance pandas numpy
 
-# Copy to the path expected by docker-compose command
-COPY src/mcp_servers/yahoo_finance.py /app/src/mcp_servers/yahoo_finance.py
+COPY src/ ./src/
+ENV PYTHONPATH=/app/src
+RUN apt-get update && apt-get install -y --no-install-recommends wget && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 8000
 CMD ["fastmcp", "run", "src/mcp_servers/yahoo_finance.py:create_yahoo_finance_server", "--transport", "http", "--host", "0.0.0.0", "--port", "8000"]
