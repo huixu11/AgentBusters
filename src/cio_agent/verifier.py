@@ -52,6 +52,8 @@ class QuestionVerifier:
         numerical_tolerance: float = 0.05,  # 5% tolerance for numerical answers
         llm_client: Optional[Any] = None,   # Optional for LLM-based verification
     ):
+        if not (0 <= numerical_tolerance <= 1):
+            raise ValueError("numerical_tolerance must be between 0 and 1 (inclusive).")
         self.tolerance = numerical_tolerance
         self.llm_client = llm_client
     
