@@ -69,9 +69,9 @@ class QuestionVerifier:
         if expected == 0:
             return computed == 0, 0.0
         
-        error_pct = abs(computed - expected) / abs(expected)
-        match = error_pct <= self.tolerance
-        return match, error_pct
+        error_percentage = abs(computed - expected) / abs(expected) * 100
+        match = (error_percentage / 100) <= self.tolerance
+        return match, error_percentage
     
     def _compare_ranking(
         self,
