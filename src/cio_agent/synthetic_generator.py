@@ -24,7 +24,6 @@ from cio_agent.models import (
     TaskDifficulty,
     TaskRubric,
     GroundTruth,
-    FinancialData,
 )
 from cio_agent.financial_lake import FinancialLake, TICKER_UNIVERSE
 from cio_agent.alphavantage import FundamentalData
