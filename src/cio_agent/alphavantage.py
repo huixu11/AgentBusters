@@ -12,7 +12,7 @@ Rate limiting and caching included for API efficiency.
 import os
 import json
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -26,9 +26,11 @@ load_dotenv()
 
 logger = structlog.get_logger()
 
-# Rate limiting: AlphaVantage free tier = 5 calls/minute
+# Rate limiting: AlphaVantage free tier = 5 calls/minute, 25 calls/day
+# Use conservative 15-second delay between calls to avoid hitting limits
 RATE_LIMIT_CALLS = 5
 RATE_LIMIT_PERIOD = 60  # seconds
+MIN_DELAY_BETWEEN_CALLS = 15  # seconds - conservative delay for free tier
 
 
 class IncomeStatementData(BaseModel):
@@ -108,7 +110,7 @@ class FundamentalData(BaseModel):
     annual_cash_flows: list[CashFlowData] = Field(default_factory=list)
     quarterly_cash_flows: list[CashFlowData] = Field(default_factory=list)
     quarterly_earnings: list[EarningsData] = Field(default_factory=list)
-    fetched_at: datetime = Field(default_factory=datetime.utcnow)
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 def _parse_value(value: Any) -> Optional[float]:
@@ -167,8 +169,15 @@ class AlphaVantageClient:
                 if wait_time > 0:
                     logger.info("alphavantage_rate_limit_wait", seconds=wait_time)
                     await asyncio.sleep(wait_time)
+            elif self._call_timestamps:
+                # Always wait minimum delay between calls for free tier
+                time_since_last = now - self._call_timestamps[-1]
+                if time_since_last < MIN_DELAY_BETWEEN_CALLS:
+                    wait_time = MIN_DELAY_BETWEEN_CALLS - time_since_last
+                    logger.info("alphavantage_delay_wait", seconds=wait_time)
+                    await asyncio.sleep(wait_time)
             
-            self._call_timestamps.append(now)
+            self._call_timestamps.append(asyncio.get_event_loop().time())
     
     def _get_cache_path(self, ticker: str, endpoint: str) -> Path:
         """Get cache file path for a given ticker and endpoint."""
@@ -183,7 +192,7 @@ class AlphaVantageClient:
         try:
             data = json.loads(cache_path.read_text())
             cached_at = datetime.fromisoformat(data.get("_cached_at", ""))
-            age_hours = (datetime.utcnow() - cached_at).total_seconds() / 3600
+            age_hours = (datetime.now(timezone.utc) - cached_at).total_seconds() / 3600
             
             if age_hours < self.cache_ttl_hours:
                 logger.debug("alphavantage_cache_hit", ticker=ticker, endpoint=endpoint)
@@ -203,10 +212,10 @@ class AlphaVantageClient:
     def _write_cache(self, ticker: str, endpoint: str, data: dict) -> None:
         """Write data to cache."""
         cache_path = self._get_cache_path(ticker, endpoint)
-        data["_cached_at"] = datetime.utcnow().isoformat()
+        data["_cached_at"] = datetime.now(timezone.utc).isoformat()
         cache_path.write_text(json.dumps(data, indent=2))
     
-    async def _fetch(self, params: dict) -> dict:
+    async def _fetch(self, params: dict, max_retries: int = 3) -> dict:
         """Make an API request with rate limiting."""
         await self._rate_limit()
         
@@ -224,8 +233,41 @@ class AlphaVantageClient:
             raise ValueError(
                 f"AlphaVantage API error for function '{function}' and symbol '{symbol}': {data['Error Message']}"
             )
+        
+        # Check for rate limit response (returns 200 OK but with Information message)
+        if "Information" in data:
+            logger.warning("alphavantage_rate_limited", 
+                          message=data["Information"][:100],
+                          function=params.get("function"),
+                          symbol=params.get("symbol"))
+            if max_retries > 0:
+                # Wait 60 seconds and retry
+                logger.info("alphavantage_retry_after_rate_limit", wait_seconds=60, retries_left=max_retries)
+                await asyncio.sleep(60)
+                return await self._fetch(params, max_retries - 1)
+            else:
+                raise ValueError(f"AlphaVantage rate limit exceeded: {data['Information']}")
+        
         if "Note" in data:
             logger.warning("alphavantage_api_note", note=data["Note"])
+        
+        # Check for empty response (API returned {} or minimal data)
+        # Valid responses should have either 'symbol' key or data arrays
+        function = params.get("function", "")
+        has_data = False
+        if function == "OVERVIEW":
+            has_data = "Symbol" in data
+        elif function == "EARNINGS":
+            has_data = "quarterlyEarnings" in data or "annualEarnings" in data
+        else:
+            has_data = "symbol" in data or "annualReports" in data
+        
+        if not has_data:
+            logger.warning("alphavantage_empty_response", 
+                          function=function,
+                          symbol=params.get("symbol"),
+                          keys=list(data.keys()))
+            raise ValueError(f"AlphaVantage returned empty data for {function}: {list(data.keys())}")
         
         return data
     

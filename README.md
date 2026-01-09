@@ -2,6 +2,54 @@
 
 A dynamic finance agent benchmark system for the [AgentBeats Competition](https://rdi.berkeley.edu/agentx-agentbeats). This project implements both **Green Agent** (Evaluator) and **Purple Agent** (Finance Analyst) using the A2A (Agent-to-Agent) protocol.
 
+## 🚀 AgentBeats Platform Submission
+
+This codebase is designed to work with the [AgentBeats platform](https://agentbeats.dev). The Green Agent follows the official [green-agent-template](https://github.com/RDI-Foundation/green-agent-template).
+
+### Quick Start (AgentBeats minimal: Green only)
+
+```bash
+# Create and activate virtual environment
+python -m venv .venv
+source .venv/bin/activate        # Linux/Mac
+# .\.venv\Scripts\Activate.ps1  # Windows PowerShell
+
+# Install dependencies
+pip install -e ".[dev]"
+
+# Start Green Agent (A2A server)
+python src/cio_agent/a2a_server.py --host 0.0.0.0 --port 9109
+
+# Verify agent card
+curl http://localhost:9109/.well-known/agent.json
+```
+
+## Prerequisites
+
+- Python 3.13 (recommended for AgentBeats)
+- [uv](https://github.com/astral-sh/uv) (recommended) or pip
+- vLLM, Ollama, or LM Studio (for local LLM deployment)
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yxc20089/AgentBusters.git
+cd AgentBusters
+
+# Option 1: Using uv (recommended)
+uv sync
+
+# Option 2: Using pip
+pip install -e ".[dev]"
+
+# Option 3: Create .env file from template
+cp .env.example .env
+# Edit .env with your API keys and configuration
+```
+
+---
+
 ## Overview
 
 The CIO-Agent FAB++ system evaluates AI agents on financial analysis tasks using:
@@ -39,162 +87,406 @@ The CIO-Agent FAB++ system evaluates AI agents on financial analysis tasks using
 
 ## Quick Start
 
-### Prerequisites
+### One-Page Quick Start (Full Stack: 5 Terminals + Tests)
 
-- Python 3.11+
-- [uv](https://github.com/astral-sh/uv) (recommended) or pip
-- Docker (optional, for full stack deployment)
-
-### Installation
+Use these exact commands to run the whole stack locally with openai/gpt-oss-20b. Each terminal runs one long-lived process; keep them open.
 
 ```bash
-# Clone the repository
-git clone https://github.com/yxc20089/AgentBusters.git
-cd AgentBusters
+# Terminal 1 — Local LLM (vLLM: openai/gpt-oss-20b)
+# conda activate /chronos_data/conda_envs/py313
+# Install vLLM
+# pip install vllm
 
-# Create virtual environment and install dependencies
-uv venv
-source .venv/bin/activate
-uv pip install -e ".[dev]"
-```
+#export LIBRARY_PATH="/chronos_data/huixu/libcuda_stub:$LIBRARY_PATH"
+#export LD_LIBRARY_PATH="/chronos_data/huixu/libcuda_stub:$LD_LIBRARY_PATH"
+vllm serve openai/gpt-oss-20b --port 8000
+# For multi-GPU: add --tensor-parallel-size=2
 
-### Running the Green Agent (Evaluator)
+# Terminal 2–4 — MCP Servers (OPTIONAL - can skip these!)
+# Purple Agent can run MCP servers in-process (no external servers needed).
+# Only start these if you want separate processes for debugging or multi-agent scenarios.
 
-```bash
+# Option A: Skip Terminals 2-4 entirely (recommended, uses in-process MCP)
+#   → Just comment out MCP_*_URL in .env
+
+# Option B: Run external MCP servers (for debugging/multi-agent)
+# Terminal 2 — SEC EDGAR MCP
+python -m src.mcp_servers.sec_edgar --transport http --host 0.0.0.0 --port 8101
+
+# Terminal 3 — Yahoo Finance MCP
+python -m src.mcp_servers.yahoo_finance --transport http --host 0.0.0.0 --port 8102
+
+# Terminal 4 — Sandbox MCP
+python -m src.mcp_servers.sandbox --transport http --host 0.0.0.0 --port 8103
+
+# Terminal 5 — Purple Agent (Finance Analyst, A2A server for AgentBeats)
+# Recommended: Production-grade A2A server with full LLM support
+purple-agent serve --host 0.0.0.0 --port 9110
+
+# Alternatively: Simple test agent (minimal A2A + REST)
+# python src/simple_purple_agent.py --host 0.0.0.0 --port 9110
+
+# Quick one-off analysis (no server needed)
+# purple-agent analyze "Did NVIDIA beat or miss Q3 FY2026 expectations?" --ticker NVDA
+
+# Terminal 6 — Green Agent (Evaluator, A2A server)
+# No CLI wrapper for serve command—start the server directly
+python src/cio_agent/a2a_server.py --host 0.0.0.0 --port 9109
+
+# Quick smoke checks (discovery/health)
+curl http://localhost:9109/.well-known/agent.json   # Green agent card
+curl http://localhost:9110/health                   # Purple agent health
+
+# Tests and end-to-end run
+# Run all tests
+python -m pytest tests/ -v
+
+# Run A2A conformance tests
+python -m pytest tests/test_a2a_green.py -v --agent-url http://localhost:9109
+
+# Run A2A tests with synthetic questions (integration test)
+python -m pytest tests/test_a2a_green.py::test_synthetic_questions_evaluation -v \
+    --agent-url http://localhost:9109 --purple-url http://localhost:9110
+
+# Run synthetic question unit tests (no server required)
+python -m pytest tests/test_synthetic.py -v
+
+# Run with coverage
+python -m pytest tests/ --cov=src --cov-report=html
+
+# Trigger a manual evaluation (Green → Purple via A2A)
 # List available tasks
 cio-agent list-tasks
 
 # Run evaluation on a specific task
-cio-agent evaluate --task-id FAB_001 --purple-endpoint http://localhost:8001
+cio-agent evaluate --task-id FAB_001 --purple-endpoint http://localhost:9110
 
-# Run the NVIDIA Q3 FY2026 test
-python scripts/test_nvidia.py
+# Demo: NVIDIA Q3 FY2026 evaluation
+python scripts/run_demo.py
+# Optional: override Purple endpoint
+# PURPLE_ENDPOINT=http://localhost:9110 python scripts/run_demo.py
 ```
 
-### Running the Purple Agent (Finance Analyst)
+#### More Useful Commands (Optional)
 
 ```bash
-# Start the A2A server
-purple-agent serve --host 0.0.0.0 --port 8001
+# Purple Agent utilities
+purple-agent info NVDA                    # Pulls quote/statistics/SEC snapshot via MCP
+purple-agent card                        # Prints the Purple Agent Card JSON
 
-# Or run a direct analysis
-purple-agent analyze "Did NVIDIA beat or miss Q3 FY2026 expectations?" --ticker NVDA
+# Green Evaluator power tools
+cio-agent list-tasks                     # View all FAB++ templates
+cio-agent generate-task random -d 2024-09-01
+cio-agent batch-evaluate --count 5 \
+	--purple-endpoint http://localhost:9110 --date 2024-09-01
 
-# Get stock information
-purple-agent info NVDA
+# Financial Lake + Synthetic benchmark (requires ALPHAVANTAGE_API_KEY)
+# cio-agent harvest --tickers NVDA,AAPL    # Populate local lake cache
+# cio-agent generate-synthetic -n 10 -o /tmp/questions.json
 
-# Display the Agent Card
-purple-agent card
+# Rate limiting: Free tier allows 5 calls/min, 25 calls/day
+# Each ticker needs 5 API calls, so harvest 1 ticker at a time
+cio-agent harvest --tickers NVDA         # ~1.5 min per ticker
+cio-agent harvest --tickers AAPL         # Run after first completes
+
+# Troubleshooting: If cache files are empty, delete and re-harvest
+# rm data/alphavantage_cache/AAPL_EARNINGS.json  # Delete empty file
+# cat data/alphavantage_cache/NVDA_EARNINGS.json | head -5  # Check content
+# cio-agent harvest --tickers AAPL --force  # Force re-fetch
+
+# Optional: add more tickers for richer variety
+# cio-agent harvest --tickers AAPL,MSFT,GOOGL
+cio-agent generate-synthetic -n 10 -o /tmp/questions.json
+cio-agent verify-questions /tmp/questions.json -o /tmp/verify.json
+cio-agent lake-status
+
+# Evaluate synthetic questions against Purple Agent
+cio-agent evaluate-synthetic data/synthetic_questions/questions.json \
+    --purple-endpoint http://localhost:9110 \
+    --output data/synthetic_questions/results.json
+# Optional: --limit 5 (only evaluate first 5)
+# Optional: --no-debate (skip debate phase, faster)
+
+# Architecture: Local Dev Testing vs AgentBeats Evaluation
+# 
+# Option A: Local Testing (evaluate-synthetic uses HTTP REST, faster)
+# ┌─────────────────────┐    HTTP POST /analyze    ┌───────────┐
+# │   cio-agent CLI     │─────────────────────────►│  Purple   │
+# │   evaluate-synthetic│◄─────────────────────────│   Agent   │
+# └─────────────────────┘                          └───────────┘
+# 
+# Option B: AgentBeats Evaluation (uses full A2A Protocol)
+#                     ┌─────────────────────────┐
+#                     │  AgentBeats Platform    │
+#                     │  (or curl test request) │
+#                     └───────────┬─────────────┘
+#                                 │ A2A JSON-RPC
+#                                 ▼
+# ┌─────────────────────────────────────────────────────────────┐
+# │  Green Agent A2A Server (:9109)                             │
+# │  --synthetic-questions questions.json                       │
+# │  (Loads synthetic questions from JSON file)                 │
+# └───────────────────────────┬─────────────────────────────────┘
+#                             │ Evaluates Purple Agent
+#                             ▼
+#                     ┌───────────────────┐
+#                     │  Purple Agent     │
+#                     │  (:9110)          │
+#                     └───────────────────┘
+
+# Run Green Agent A2A server with synthetic questions (for AgentBeats):
+python src/cio_agent/a2a_server.py --host 0.0.0.0 --port 9109 \
+    --synthetic-questions data/synthetic_questions/questions.json
+
+# Test A2A evaluation with curl (simulates AgentBeats platform request):
+curl -X POST http://localhost:9109/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "message/send",
+    "id": "test-3",
+    "params": {
+      "message": {
+        "messageId": "msg-003",
+        "role": "user",
+        "parts": [{"type": "text", "text": "{\"participants\": {\"purple_agent\": \"http://localhost:9110\"}, \"config\": {\"num_tasks\": 1}}"}]
+      }
+    }
+  }'
+
+# Note: cio-agent list-tasks shows FAB++ templates, not synthetic questions
+# Synthetic questions are loaded by the A2A server and used during evaluation
+
+# IMPORTANT: A2A SDK tracks tasks by session context (not just messageId)
+# Error "Task already in terminal state" occurs because A2A remembers completed tasks.
+# Solution: RESTART the A2A server to clear in-memory state (Ctrl+C then re-run).
+# For local testing, use evaluate-synthetic instead (no session tracking issues).
+
+# A2A curl with dynamic UUID (use this to avoid "terminal state" error):
+curl -X POST http://localhost:9109/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "message/send",
+    "id": "test-'$(date +%s)'",
+    "params": {
+      "message": {
+        "messageId": "'$(uuidgen || cat /proc/sys/kernel/random/uuid)'",
+        "role": "user",
+        "parts": [{"type": "text", "text": "{\"participants\": {\"purple_agent\": \"http://localhost:9110\"}, \"config\": {\"num_tasks\": 1}}"}]
+      }
+    }
+  }'
+
+# Quick testing recommendation:
+# ┌────────────────────────────────────────────────────────────────────────────┐
+# │ Method                      │ Use Case           │ Protocol  │ Speed      │
+# ├────────────────────────────────────────────────────────────────────────────┤
+# │ cio-agent evaluate-synthetic│ Local dev testing  │ HTTP REST │ Fast       │
+# │ curl / A2A Server           │ AgentBeats official│ A2A JSON-RPC│ Full stack│
+# └────────────────────────────────────────────────────────────────────────────┘
+#
+# For quick local testing, use evaluate-synthetic (simpler, faster):
+cio-agent evaluate-synthetic data/synthetic_questions/questions.json \
+    --purple-endpoint http://localhost:9110 --limit 2 --no-debate
+
+# This directly calls Purple Agent's /analyze endpoint, no A2A server needed
+
+# For AgentBeats production or full A2A protocol testing, use curl/A2A server:
+# - Requires Green Agent A2A server running with --synthetic-questions
+# - Uses full A2A JSON-RPC protocol with streaming
+# - This is what AgentBeats platform will use
+# - Task status stored in memory (InMemoryTaskStore), lost on server restart
+
+# Query A2A task status by ID:
+# curl -X POST http://localhost:9109/ -H "Content-Type: application/json" \
+#   -d '{"jsonrpc":"2.0","method":"tasks/get","id":"q1","params":{"id":"TASK_ID"}}'
+
+# Result storage comparison:
+# ┌─────────────────────────────┬──────────────────────────────────────────┐
+# │ Method                      │ Results Storage                          │
+# ├─────────────────────────────┼──────────────────────────────────────────┤
+# │ evaluate-synthetic --output │ Saved to JSON file (persistent)          │
+# │ A2A Server                  │ In-memory only (lost on restart)         │
+# └─────────────────────────────┴──────────────────────────────────────────┘
+# Recommendation: Use evaluate-synthetic with --output for local dev
+
+
+# MCP helpers and CSV batch eval
+# Note: start_mcp_servers.py uses stdio transport by default (for local dev or MCP Inspector testing)
+# For network HTTP (used in Quick Start above), add --transport http: python -m src.mcp_servers.XXXX --transport http --host 0.0.0.0 --port PORT
+python scripts/start_mcp_servers.py --server edgar      # Stdio/SSE transport mode (dev only)
+python scripts/test_mcp_live.py                         # Smoke test MCP servers
+python -m scripts.run_csv_eval \
+	--dataset-path finance-agent/data/public.csv \
+	--purple-endpoint http://localhost:9110 \
+	--output /tmp/summary.json --no-debate --limit 5
+
+# Alternative direct startup (stdio by default)
+# Default: stdio transport (not accessible via HTTP). Add --transport http for network access.
+python src/mcp_servers/sec_edgar.py                                      # Stdio only
+python src/mcp_servers/sec_edgar.py --transport http --port 8101         # HTTP on :8101
+python src/mcp_servers/yahoo_finance.py --transport http --port 8102     # HTTP on :8102
+python src/mcp_servers/sandbox.py --transport http --port 8103           # HTTP on :8103
+
+# Purple Agent startup methods (all use HTTP/Uvicorn, differ in features):
+python src/simple_purple_agent.py --host 0.0.0.0 --port 9110     # Minimal A2A + REST test agent
+python src/purple_agent/server.py           # Full A2A server (read .env for LLM config)
+purple-agent serve --host 0.0.0.0 --port 9110                   # CLI wrapper for src/purple_agent/server.py
 ```
 
+Tip: Using hosted APIs instead of local vLLM? You can skip Terminal 1 and just configure your `.env`:
+
+```dotenv
+# OpenAI (skip Terminal 1)
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-your-key
+LLM_MODEL=gpt-4o
+# Do not set OPENAI_API_BASE when using OpenAI's hosted API
+```
+
+```dotenv
+# Anthropic (skip Terminal 1)
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-your-key
+LLM_MODEL=claude-3.5-sonnet
+```
+
+Tip: For vLLM-backed LLM calls, set these in `.env` (auto-loaded):
+
+```dotenv
+LLM_PROVIDER=openai
+OPENAI_API_BASE=http://localhost:8000/v1
+OPENAI_API_KEY=dummy
+LLM_MODEL=openai/gpt-oss-20b
+```
+
+git clone https://github.com/yxc20089/AgentBusters.git
 ## MCP Server Configuration
 
 The Purple Agent connects to MCP servers for real financial data:
 
 | Server | Default URL | Purpose |
 |--------|-------------|---------|
-| SEC EDGAR MCP | `http://localhost:8001` | SEC filings, XBRL data |
-| Yahoo Finance MCP | `http://localhost:8002` | Market data, statistics |
-| Sandbox MCP | `http://localhost:8003` | Python code execution |
+| SEC EDGAR MCP | `http://localhost:8101` | SEC filings, XBRL data |
+| Yahoo Finance MCP | `http://localhost:8102` | Market data, statistics |
+| Sandbox MCP | `http://localhost:8103` | Python code execution |
 
-Configure via environment variables:
+Configure via environment variables or `.env` file:
 
 ```bash
-export MCP_EDGAR_URL=http://localhost:8001
-export MCP_YFINANCE_URL=http://localhost:8002
-export MCP_SANDBOX_URL=http://localhost:8003
+export MCP_EDGAR_URL=http://localhost:8101
+export MCP_YFINANCE_URL=http://localhost:8102
+export MCP_SANDBOX_URL=http://localhost:8103
 ```
+
+Or in `.env`:
+```dotenv
+MCP_EDGAR_URL=http://localhost:8101
+MCP_YFINANCE_URL=http://localhost:8102
+MCP_SANDBOX_URL=http://localhost:8103
+```
+Tip: If you set `MCP_*` URLs, ensure the ports match your running servers (defaults: 8101/8102/8103). If unset, the Purple Agent falls back to in-process MCP servers.
 
 ## Docker Deployment
 
-MCP servers build from `src/mcp_servers/*.py` using the provided Dockerfiles.
+### Green Agent (AgentBeats Compatible)
 
-### Build images (once)
 ```bash
-docker compose build
-# After code changes, rebuild without cache to pick up source edits:
-docker compose build --no-cache
-# Build specific services (common set):
-# docker compose build sec-edgar-mcp yahoo-finance-mcp mcp-sandbox purple-agent cio-agent
-# Without cache:
-# docker compose build --no-cache sec-edgar-mcp yahoo-finance-mcp mcp-sandbox purple-agent cio-agent
+# Build
+docker build -f Dockerfile.green -t cio-agent-green .
+
+# Run
+docker run -p 9109:9109 cio-agent-green --host 0.0.0.0 --port 9109
+
+# With API keys
+docker run -p 9109:9109 -e OPENAI_API_KEY=sk-xxx cio-agent-green --host 0.0.0.0
+
+# Push to GitHub Container Registry (optional)
+docker tag cio-agent-green ghcr.io/your-org/cio-agent-green:latest
+docker push ghcr.io/your-org/cio-agent-green:latest
+# CI/CD: .github/workflows/test-and-publish-green.yml builds & publishes on push to main or tags
 ```
 
-### Start MCP + Purple (background)
-```bash
-docker compose up -d
-```
-External ports (default compose): Purple `8010->8001`, EDGAR `8001->8000`, YFinance `8002->8000`, Sandbox `8003->8000`.
+### Individual Service Build & Run
 
-Check the status
 ```bash
-docker ps --filter "name=fab-plus"
-```
+# Green Agent
+docker build -f Dockerfile -t cio-agent-green .
+docker run -p 9109:9109 cio-agent-green
 
-### One-shot CSV batch run (headless)
-Calls Purple `/analyze` endpoint. The `--purple-endpoint` flag is required.
-```bash
-docker compose run --rm --user root cio-agent sh -c "python -m scripts.run_csv_eval --dataset-path /app/data/public.csv --simulation-date 2024-12-31 --difficulty medium --output /data/results/summary.json --purple-endpoint http://fab-plus-purple-agent:8001 && cat /data/results/summary.json"
-```
+# Purple Agent
+docker build -f Dockerfile.purple -t purple-agent .
+docker run -p 9110:9110 purple-agent
 
-Persist results to host:
-```bash
-mkdir -p results
-docker compose run --rm --user root -v ${PWD}/results:/data/results cio-agent \
-  python -m scripts.run_csv_eval \
-    --dataset-path /app/data/public.csv \
-    --simulation-date 2024-12-31 \
-    --difficulty medium \
-    --output /data/results/summary.json \
-    --purple-endpoint http://fab-plus-purple-agent:8001
-cat results/summary.json
+# MCP Servers
+docker build -f Dockerfile.mcp-edgar -t mcp-edgar .
+docker run -p 8101:8000 mcp-edgar
+
+docker build -f Dockerfile.mcp-yahoo -t mcp-yahoo .
+docker run -p 8102:8000 mcp-yahoo
+
+docker build -f Dockerfile.mcp-sandbox -t mcp-sandbox .
+docker run -p 8103:8000 mcp-sandbox
 ```
 
-Options:
-- `--difficulty` repeatable filter (easy/medium/hard/expert)
-- `--limit N` cap rows
-- `--seed` fix randomness (ticker/year substitution)
-- `--no-debate` skip debate phase
-- `--purple-endpoint` (required) call Purple `/analyze` (e.g., `http://fab-plus-purple-agent:8001`)
-- `--output` target JSON; if `/data/results` not writable, use `--user root` or `/tmp/summary.json`
-
-### Green Agent single-task via Purple
-Purple must be running. From compose network:
-```bash
-docker compose run --rm --no-deps cio-agent \
-  cio-agent evaluate --task-id FAB_050 --date 2024-01-01 --output summary \
-  --purple-endpoint http://fab-plus-purple-agent:8001
-```
-From host to Purple: `--purple-endpoint http://localhost:8010`
-
-### Stop services
-```bash
-docker compose down
-```
+Port mapping: Green Agent `9109`, Purple Agent `9110`, EDGAR `8101`, YFinance `8102`, Sandbox `8103`.
 
 ## Configuration
 
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OPENAI_API_KEY` | OpenAI API key for LLM | - |
-| `ANTHROPIC_API_KEY` | Anthropic API key for LLM | - |
-| `LLM_MODEL` | Model to use | `gpt-4o` |
-| `SIMULATION_DATE` | Date for temporal locking (YYYY-MM-DD) | Current date |
-| `MCP_EDGAR_URL` | SEC EDGAR MCP server URL | `http://localhost:8001` |
-| `MCP_YFINANCE_URL` | Yahoo Finance MCP server URL | `http://localhost:8002` |
-| `MCP_SANDBOX_URL` | Sandbox MCP server URL | `http://localhost:8003` |
-
-### Purple Agent Options
+### Environment Setup with `.env` File
 
 ```bash
-# Run with simulation date (temporal locking)
-purple-agent serve --simulation-date 2025-11-20
+# 1. Create .env from template
+cp .env.example .env
 
-# Run without MCP (direct API access - for testing)
-# Set USE_MCP=false in code or use direct APIs
+# 2. Edit .env with your LLM configuration
 ```
+
+**For local vLLM (openai/gpt-oss-20b):**
+```dotenv
+LLM_PROVIDER=openai
+OPENAI_API_BASE=http://localhost:8000/v1
+OPENAI_API_KEY=dummy
+LLM_MODEL=openai/gpt-oss-20b
+```
+
+**For OpenAI API:**
+```dotenv
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-your-key
+LLM_MODEL=gpt-4o
+```
+
+**For Anthropic API:**
+```dotenv
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-your-key
+LLM_MODEL=claude-3.5-sonnet
+```
+
+**MCP Servers (optional):**
+```dotenv
+MCP_EDGAR_URL=http://localhost:8101
+MCP_YFINANCE_URL=http://localhost:8102
+MCP_SANDBOX_URL=http://localhost:8103
+```
+
+The agents will automatically load `.env` on startup. Alternatively, you can use `export` commands instead of `.env` file.
+
+### Environment Variables Reference
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `LLM_PROVIDER` | LLM provider | `openai`, `anthropic` |
+| `LLM_MODEL` | Model name | `gpt-4o`, `claude-3.5-sonnet`, `openai/gpt-oss-20b` |
+| `OPENAI_API_KEY` | OpenAI API key | `sk-...` |
+| `OPENAI_API_BASE` | Custom API endpoint (for local vLLM) | `http://localhost:8000/v1` |
+| `ANTHROPIC_API_KEY` | Anthropic API key | `sk-ant-...` |
+| `MCP_EDGAR_URL` | SEC EDGAR MCP server | `http://localhost:8101` |
+| `MCP_YFINANCE_URL` | Yahoo Finance MCP server | `http://localhost:8102` |
+| `MCP_SANDBOX_URL` | Sandbox MCP server | `http://localhost:8103` |
+
 
 ## Project Structure
 
@@ -202,52 +494,44 @@ purple-agent serve --simulation-date 2025-11-20
 AgentBusters/
 ├── src/
 │   ├── cio_agent/           # Green Agent (Evaluator)
+│   │   ├── a2a_server.py    # A2A server entry point (AgentBeats)
+│   │   ├── green_executor.py # A2A protocol executor
+│   │   ├── green_agent.py   # FAB++ evaluation logic
+│   │   ├── messenger.py     # A2A messaging utilities
 │   │   ├── models.py        # Core data models
 │   │   ├── evaluator.py     # Comprehensive evaluator
 │   │   ├── debate.py        # Adversarial debate manager
 │   │   ├── task_generator.py # Dynamic task generation
-│   │   ├── orchestrator.py  # A2A orchestrator
-│   │   ├── cli.py           # CLI interface
-│   │   ├── alphavantage.py  # AlphaVantage API client
-│   │   ├── financial_lake.py # Local financial data storage
-│   │   ├── synthetic_generator.py # Synthetic question generation
-│   │   └── verifier.py      # Question verification
-│   │
-│   ├── purple_agent/        # Purple Agent (Finance Analyst)
-│   │   ├── agent.py         # Main agent class
-│   │   ├── executor.py      # A2A executor implementation
-│   │   ├── card.py          # Agent Card definition
-│   │   ├── tools.py         # Direct API tools (fallback)
-│   │   ├── mcp_tools.py     # MCP-based tools
-│   │   ├── server.py        # A2A FastAPI server
 │   │   └── cli.py           # CLI interface
 │   │
-│   ├── mcp_clients/         # MCP client wrappers
-│   │   ├── edgar.py         # SEC EDGAR MCP client
-│   │   ├── yahoo_finance.py # Yahoo Finance MCP client
-│   │   └── sandbox.py       # Python Sandbox MCP client
+│   ├── purple_agent/        # Purple Agent (Finance Analyst)
+│   │   ├── server.py        # A2A FastAPI server
+│   │   ├── executor.py      # A2A executor implementation
+│   │   ├── agent.py         # Main agent class
+│   │   └── cli.py           # CLI interface
 │   │
-│   ├── mcp_servers/         # Actual MCP servers (FastMCP)
-│   │   ├── sec_edgar.py     # SEC EDGAR server (edgartools)
-│   │   ├── yahoo_finance.py # Yahoo Finance server (yfinance)
+│   ├── simple_purple_agent.py # Simple test Purple Agent
+│   │
+│   ├── mcp_servers/         # MCP servers (FastMCP)
+│   │   ├── sec_edgar.py     # SEC EDGAR server
+│   │   ├── yahoo_finance.py # Yahoo Finance server
 │   │   └── sandbox.py       # Python execution sandbox
 │   │
 │   └── evaluators/          # Evaluation components
 │       ├── macro.py         # Macro thesis evaluator
 │       ├── fundamental.py   # Fundamental analysis evaluator
-│       └── cost_tracker.py  # Cost tracking
+│       └── execution.py     # Execution quality evaluator
 │
 ├── tests/
-│   ├── test_evaluator.py    # Unit tests
+│   ├── test_a2a_green.py    # A2A conformance tests
 │   ├── test_e2e.py          # E2E tests with real NVIDIA data
 │   └── test_purple_agent.py # Purple Agent tests
 │
-├── scripts/
-│   ├── test_nvidia.py       # NVIDIA Q3 FY2026 demo
-│   └── run_demo.py          # Full pipeline demo
+├── .github/workflows/
+│   └── test-and-publish-green.yml  # CI/CD for Green Agent
 │
-├── docker-compose.yml       # Full stack deployment
-├── Dockerfile               # Green Agent container
+├── Dockerfile.green         # Green Agent container (AgentBeats)
+├── Dockerfile               # Legacy Green Agent container
 ├── Dockerfile.purple        # Purple Agent container
 └── pyproject.toml           # Project configuration
 ```
@@ -266,72 +550,27 @@ Where:
 - **Cost**: Total USD cost of LLM and tool calls
 - **LookaheadPenalty**: Penalty for temporal violations (accessing future data)
 
-## Synthetic Benchmark Generation
-
-The system includes a **Generator-Verifier-Refiner** architecture for creating synthetic FAB-style questions using AlphaVantage as the ground truth substrate.
-
-### Setup
-
-1. Get a free API key from [AlphaVantage](https://www.alphavantage.co/support/#api-key)
-2. Add to `.env`:
-   ```bash
-   ALPHAVANTAGE_API_KEY=your_api_key_here
-   ```
-
-### CLI Commands
-
-```bash
-# Harvest financial data into local cache (50 tickers)
-cio-agent harvest --tickers "AAPL,MSFT,GOOGL"
-
-# Check what data is available
-cio-agent lake-status
-
-# Generate synthetic benchmark questions
-cio-agent generate-synthetic --count 100 --output questions.json
-
-# Verify questions for solvability
-cio-agent verify-questions questions.json --output report.json
-```
-
-### Category Coverage
-
-The generator creates questions across all 9 FAB categories:
-
-| Category | Weight | Description |
-|----------|--------|-------------|
-| Quantitative Retrieval | 19% | Extract specific numerical values |
-| Qualitative Retrieval | 18% | Extract text descriptions, risk factors |
-| Numerical Reasoning | 15% | Margins, growth rates, CAGR |
-| Beat or Miss | 13% | EPS vs analyst estimates |
-| Complex Retrieval | 10% | Multi-document synthesis |
-| Adjustments | 8% | EBITDA reconciliation |
-| Trends | 7% | Multi-year longitudinal analysis |
-| Financial Modeling | 9% | M&A firepower, DCF |
-| Market Analysis | 6% | Cross-company comparisons |
-
-### Architecture
-
-```
-AlphaVantage API → Financial Lake → Synthetic Generator → Verifier → Questions
-                                           ↓
-                                       Refiner (for ambiguous questions)
-```
-
 ## Testing
 
 ```bash
 # Run all tests
 python -m pytest tests/ -v
 
-# Run specific test file
-python -m pytest tests/test_purple_agent.py -v
+# Run A2A conformance tests
+python -m pytest tests/test_a2a_green.py -v --agent-url http://localhost:9109
 
 # Run with coverage
 python -m pytest tests/ --cov=src --cov-report=html
 ```
 
 ## API Reference
+
+### Green Agent A2A Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/.well-known/agent.json` | GET | Agent Card (A2A discovery) |
+| `/` | POST | A2A JSON-RPC endpoint |
 
 ### Purple Agent A2A Endpoints
 
@@ -342,19 +581,11 @@ python -m pytest tests/ --cov=src --cov-report=html
 | `/analyze` | POST | Direct analysis (non-A2A) |
 | `/` | POST | A2A JSON-RPC endpoint |
 
-### Agent Card Skills
-
-1. **earnings_analysis** - Earnings beat/miss analysis
-2. **sec_filing_analysis** - SEC 10-K, 10-Q analysis
-3. **financial_ratio_calculation** - P/E, ROE, debt ratios
-4. **market_analysis** - Sector and macro trends
-5. **investment_recommendation** - Buy/hold/sell recommendations
-
 ## Competition Info
 
 This project is built for the [AgentBeats Finance Track](https://rdi.berkeley.edu/agentx-agentbeats):
 
-- **Phase 1** (Dec 2025): Green Agent submissions
+- **Phase 1** (Jan 15, 2026): Green Agent submissions
 - **Phase 2** (Feb 2026): Purple Agent submissions
 
 ## License
@@ -373,3 +604,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 - [AgentBeats Competition](https://rdi.berkeley.edu/agentx-agentbeats) by Berkeley RDI
 - [A2A Protocol](https://a2a-protocol.org/) by Google
 - [FAB Benchmark](https://github.com/financial-agent-benchmark/FAB) for task templates
+- [green-agent-template](https://github.com/RDI-Foundation/green-agent-template) for A2A implementation reference
+
