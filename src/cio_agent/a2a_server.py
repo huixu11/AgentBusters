@@ -144,10 +144,15 @@ def main():
     # Create request handler with executor
     database_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///tasks.db")
     print(f"Using database task store: {database_url}")
-    engine = create_async_engine(database_url)
-    task_store = DatabaseTaskStore(engine)
-    # Note: DatabaseTaskStore automatically handles initialization (e.g., table creation)
-    # when the first task is saved. No explicit initialize() call is needed on startup.
+    try:
+        engine = create_async_engine(database_url)
+        task_store = DatabaseTaskStore(engine)
+        # Note: DatabaseTaskStore automatically handles initialization (e.g., table creation)
+        # when the first task is saved. No explicit initialize() call is needed on startup.
+    except Exception as e:
+        print(f"ERROR: Failed to initialize database task store: {e}")
+        print("Check that DATABASE_URL is correctly formatted (e.g., sqlite+aiosqlite:///tasks.db)")
+        raise SystemExit(1)
     
     request_handler = DefaultRequestHandler(
         agent_executor=GreenAgentExecutor(synthetic_questions=synthetic_questions),
