@@ -18,8 +18,10 @@ from fastapi.responses import JSONResponse
 from a2a.server.apps.jsonrpc.fastapi_app import A2AFastAPIApplication
 from a2a.server.request_handlers.default_request_handler import DefaultRequestHandler
 from a2a.server.tasks import DatabaseTaskStore
+from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
 from a2a.server.events.in_memory_queue_manager import InMemoryQueueManager
-from a2a.types import AgentCard
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.exc import SQLAlchemyError
 
 from purple_agent.card import get_agent_card
 from purple_agent.executor import FinanceAgentExecutor
@@ -87,12 +89,10 @@ def create_app(
     # Create A2A infrastructure with persistent storage
     database_url = os.getenv("PURPLE_DATABASE_URL", "sqlite+aiosqlite:///purple_tasks.db")
     try:
-        from sqlalchemy.ext.asyncio import create_async_engine
         engine = create_async_engine(database_url)
         task_store = DatabaseTaskStore(engine)
-    except Exception as e:
+    except (SQLAlchemyError, ImportError, OSError) as e:
         print(f"WARNING: Failed to initialize database, falling back to in-memory: {e}")
-        from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
         task_store = InMemoryTaskStore()
     queue_manager = InMemoryQueueManager()
 

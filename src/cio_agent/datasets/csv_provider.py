@@ -17,6 +17,7 @@ Rubric format (JSON array):
 
 import csv
 import json
+import ast
 import logging
 from enum import Enum
 from pathlib import Path
@@ -134,7 +135,6 @@ def _parse_rubric(raw: str, row_index: int = -1) -> tuple[list[str], list[str]]:
     except json.JSONDecodeError:
         # Try Python literal syntax (single quotes) as fallback
         try:
-            import ast
             data = ast.literal_eval(raw)
             required_criteria: list[str] = []
             penalty_conditions: list[str] = []
