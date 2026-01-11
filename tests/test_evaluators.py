@@ -3,7 +3,7 @@ Unit tests for dataset-specific evaluators.
 """
 
 import pytest
-from evaluators.base import EvalResult, BaseDatasetEvaluator
+from evaluators.base import EvalResult
 from evaluators.bizfinbench_evaluator import BizFinBenchEvaluator
 from evaluators.public_csv_evaluator import PublicCsvEvaluator
 
@@ -164,3 +164,52 @@ class TestBizFinBenchEvaluatorBatch:
         assert agg["count"] == 3
         assert agg["correct_count"] == 2
         assert agg["accuracy"] == 2/3
+
+
+class TestBizFinBenchEvaluatorEdgeCases:
+    """Test BizFinBench error cases."""
+
+    @pytest.fixture
+    def evaluator(self):
+        return BizFinBenchEvaluator()
+
+    def test_no_extractable_number(self, evaluator):
+        """Test prediction with no extractable number."""
+        result = evaluator.evaluate("no numbers here", "1.2532", task_type="financial_quantitative_computation")
+        assert result.score == 0.0
+        assert "Could not extract" in result.feedback
+
+    def test_malformed_sequence(self, evaluator):
+        """Test malformed sequence input."""
+        result = evaluator.evaluate("abc", "2,1,4,3", task_type="event_logic_reasoning")
+        assert result.score == 0.0
+
+    def test_whitespace_only_prediction(self, evaluator):
+        """Test whitespace-only prediction."""
+        result = evaluator.evaluate("   ", "answer", task_type="user_sentiment_analysis")
+        assert result.score == 0.0
+
+
+class TestPublicCsvEvaluatorKeyElements:
+    """Test _extract_key_elements method."""
+
+    @pytest.fixture
+    def evaluator(self):
+        return PublicCsvEvaluator()
+
+    def test_extract_numbers(self, evaluator):
+        elements = evaluator._extract_key_elements("Revenue was $3.25 billion in Q4")
+        assert "$3.25 billion" in elements or "3.25" in [e for e in elements if "3.25" in e]
+
+    def test_extract_names(self, evaluator):
+        elements = evaluator._extract_key_elements("John Smith is the CEO")
+        assert "john smith" in elements or any("john" in e for e in elements)
+
+    def test_extract_tickers(self, evaluator):
+        elements = evaluator._extract_key_elements("AAPL and MSFT are tech stocks")
+        assert "aapl" in elements or "msft" in elements
+
+    def test_empty_text(self, evaluator):
+        elements = evaluator._extract_key_elements("")
+        assert elements == []
+

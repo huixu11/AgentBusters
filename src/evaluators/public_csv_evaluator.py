@@ -13,7 +13,7 @@ Rubric format:
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from evaluators.base import BaseDatasetEvaluator, EvalResult
 
@@ -34,6 +34,10 @@ class PublicCsvEvaluator(BaseDatasetEvaluator):
     """
     
     name = "public_csv"
+    
+    # Scoring constants
+    CONTRADICTION_PENALTY = 0.5  # Penalty per contradiction found
+    MIN_WORD_LENGTH = 4  # Minimum word length for substring matching
     
     def __init__(self, use_llm: bool = False, llm_client: Any = None):
         """
@@ -104,7 +108,7 @@ class PublicCsvEvaluator(BaseDatasetEvaluator):
         # Calculate score
         total_correctness = len(correctness_items)
         max_score = total_correctness if total_correctness > 0 else 1
-        score = correct_count - (penalty_count * 0.5)  # Penalty reduces score
+        score = correct_count - (penalty_count * self.CONTRADICTION_PENALTY)
         score = max(0.0, score)  # Don't go negative
         
         # Normalize to 0-1 range
@@ -152,7 +156,7 @@ class PublicCsvEvaluator(BaseDatasetEvaluator):
         if not key_elements:
             # No extractable elements, check for substring
             return crit_lower in pred_lower or any(
-                word in pred_lower for word in crit_lower.split() if len(word) > 4
+                word in pred_lower for word in crit_lower.split() if len(word) > self.MIN_WORD_LENGTH
             )
         
         # Check if majority of key elements are present
@@ -163,33 +167,22 @@ class PublicCsvEvaluator(BaseDatasetEvaluator):
         """
         Check if prediction contradicts the reference.
         
-        Simple approach: This is difficult without LLM, so we check for
-        obvious contradictions (opposite values, negations, etc.)
+        Note: Without LLM support, this method always returns False to avoid
+        false positives. Set use_llm=True for actual contradiction detection.
         
         Args:
             predicted: The prediction to check
             reference: The reference that shouldn't be contradicted
             
         Returns:
-            True if contradiction detected
+            True if contradiction detected (always False without LLM)
         """
         if not reference or not predicted:
             return False
         
-        # Simple heuristic: Check for explicit negations of key facts
-        pred_lower = predicted.lower()
-        ref_lower = reference.lower()
-        
-        # Extract numbers from both
-        pred_nums = set(re.findall(r'\d+\.?\d*', pred_lower))
-        ref_nums = set(re.findall(r'\d+\.?\d*', ref_lower))
-        
-        # If there are numbers in reference but different ones in prediction,
-        # this could indicate contradiction (but not always)
-        # This is a weak heuristic - LLM would be better
-        
-        # For now, be conservative and rarely flag contradictions
-        # without LLM (to avoid false positives)
+        # TODO: Implement LLM-based contradiction detection when use_llm=True
+        # For now, be conservative and never flag contradictions without LLM
+        # to avoid false positives
         return False
     
     def _extract_key_elements(self, text: str) -> List[str]:

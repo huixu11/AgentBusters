@@ -22,7 +22,7 @@ import random
 import statistics
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List
+from typing import Any, Dict, List
 
 from cio_agent.a2a_client import PurpleHTTPAgentClient
 from cio_agent.datasets.bizfinbench_provider import BizFinBenchProvider
@@ -133,7 +133,7 @@ def main() -> None:
         model="purple-http",
     )
 
-    results: List[dict[str, Any]] = []
+    results: List[Dict[str, Any]] = []
 
     async def process_template(tpl):
         """Process a single template and return result dict."""
@@ -268,7 +268,7 @@ def main() -> None:
     ]
     cost_values = [r["cost"] for r in results if isinstance(r.get("cost"), (int, float))]
 
-    summary: dict[str, Any] = {
+    summary: Dict[str, Any] = {
         "purple_agent_id": args.purple_agent_id,
         "purple_endpoint": args.purple_endpoint,
         "dataset_path": args.dataset_path,

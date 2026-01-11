@@ -13,11 +13,13 @@ Dataset-specific evaluators:
 """
 
 # Core evaluators (require structlog and other dependencies)
+_core_evaluators_available = False
 try:
     from evaluators.macro import MacroEvaluator
     from evaluators.fundamental import FundamentalEvaluator
     from evaluators.execution import ExecutionEvaluator
     from evaluators.cost_tracker import CostTracker, LLMCallRecord
+    _core_evaluators_available = True
 except ImportError:
     MacroEvaluator = None
     FundamentalEvaluator = None
@@ -30,14 +32,20 @@ from evaluators.base import BaseDatasetEvaluator, EvalResult
 from evaluators.bizfinbench_evaluator import BizFinBenchEvaluator
 from evaluators.public_csv_evaluator import PublicCsvEvaluator
 
+# Build __all__ dynamically
 __all__ = [
-    "MacroEvaluator",
-    "FundamentalEvaluator",
-    "ExecutionEvaluator",
-    "CostTracker",
-    "LLMCallRecord",
     "BaseDatasetEvaluator",
     "EvalResult",
     "BizFinBenchEvaluator",
     "PublicCsvEvaluator",
 ]
+
+# Only export core evaluators if they were successfully imported
+if _core_evaluators_available:
+    __all__.extend([
+        "MacroEvaluator",
+        "FundamentalEvaluator",
+        "ExecutionEvaluator",
+        "CostTracker",
+        "LLMCallRecord",
+    ])

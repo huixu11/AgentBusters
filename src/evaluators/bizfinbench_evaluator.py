@@ -40,7 +40,8 @@ class BizFinBenchEvaluator(BaseDatasetEvaluator):
         Initialize BizFinBench evaluator.
         
         Args:
-            tolerance: Numerical tolerance for quantitative tasks (default: 0.01 = 1%)
+            tolerance: Numerical tolerance for quantitative tasks.
+                       If None, uses DEFAULT_TOLERANCE (currently 0.01 = 1%).
         """
         self.tolerance = tolerance or self.DEFAULT_TOLERANCE
     

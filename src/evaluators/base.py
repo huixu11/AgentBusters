@@ -7,7 +7,7 @@ This module provides the abstract base class that all dataset evaluators impleme
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 @dataclass
