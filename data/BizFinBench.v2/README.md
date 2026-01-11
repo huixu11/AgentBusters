@@ -89,7 +89,7 @@ configs:
 ## 📢 News 
 - 🚀 [06/01/2026] TBD
 
-## 📕 Data Distrubution
+## 📕 Data Distribution
 BizFinBench.v2 contains multiple subtasks, each focusing on a different financial understanding and reasoning ability, as follows:
 
 ### Distribution Visualization
