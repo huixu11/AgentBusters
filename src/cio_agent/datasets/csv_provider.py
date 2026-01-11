@@ -21,7 +21,7 @@ import ast
 import logging
 from enum import Enum
 from pathlib import Path
-from typing import List
+from typing import List, Union
 
 from cio_agent.datasets.base import DatasetExample, DatasetProvider
 from cio_agent.models import (
@@ -152,7 +152,7 @@ class CsvFinanceDatasetProvider(DatasetProvider):
 
     name = "csv_finance"
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: Union[str, Path]):
         self.path = Path(path)
         self._validated = False
 

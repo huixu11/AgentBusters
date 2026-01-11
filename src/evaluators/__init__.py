@@ -5,12 +5,30 @@ This module provides the hierarchical evaluation framework:
 - MacroEvaluator: Strategic reasoning assessment
 - FundamentalEvaluator: Data accuracy validation
 - ExecutionEvaluator: Action quality assessment
+
+Dataset-specific evaluators:
+- BaseDatasetEvaluator: Abstract base for dataset evaluators
+- BizFinBenchEvaluator: For BizFinBench.v2 dataset
+- PublicCsvEvaluator: For public.csv (FAB++) dataset
 """
 
-from evaluators.macro import MacroEvaluator
-from evaluators.fundamental import FundamentalEvaluator
-from evaluators.execution import ExecutionEvaluator
-from evaluators.cost_tracker import CostTracker, LLMCallRecord
+# Core evaluators (require structlog and other dependencies)
+try:
+    from evaluators.macro import MacroEvaluator
+    from evaluators.fundamental import FundamentalEvaluator
+    from evaluators.execution import ExecutionEvaluator
+    from evaluators.cost_tracker import CostTracker, LLMCallRecord
+except ImportError:
+    MacroEvaluator = None
+    FundamentalEvaluator = None
+    ExecutionEvaluator = None
+    CostTracker = None
+    LLMCallRecord = None
+
+# Dataset-specific evaluators (minimal dependencies)
+from evaluators.base import BaseDatasetEvaluator, EvalResult
+from evaluators.bizfinbench_evaluator import BizFinBenchEvaluator
+from evaluators.public_csv_evaluator import PublicCsvEvaluator
 
 __all__ = [
     "MacroEvaluator",
@@ -18,4 +36,8 @@ __all__ = [
     "ExecutionEvaluator",
     "CostTracker",
     "LLMCallRecord",
+    "BaseDatasetEvaluator",
+    "EvalResult",
+    "BizFinBenchEvaluator",
+    "PublicCsvEvaluator",
 ]

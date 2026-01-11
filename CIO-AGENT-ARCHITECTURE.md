@@ -672,10 +672,63 @@ To ensure reliable evaluation over long periods, the CIO-Agent uses a persistent
 - **Persistence**: All task states, messages, and results are saved to disk.
 - **Resumability**: Evaluations can pick up where they left off if the server is restarted.
 - **Scalability**: Capable of handling hundreds of concurrent evaluation tasks without memory exhaustion.
+### 4.7 Dataset-Specific Evaluators (New in v1.1)
 
+Beyond the hierarchical Role Score (Macro/Fundamental/Execution), we support **dataset-specific evaluation** for different benchmark datasets:
 
+#### Architecture
+
+```
+src/evaluators/
+├── base.py                      # BaseDatasetEvaluator abstract class
+├── bizfinbench_evaluator.py     # For BizFinBench.v2 (exact match)
+├── public_csv_evaluator.py      # For public.csv (rubric-based)
+└── ... (Macro, Fundamental, Execution evaluators)
+```
+
+#### BizFinBenchEvaluator
+
+For BizFinBench.v2 dataset (29,578 Q&A pairs), evaluation is based on **exact match** by task type:
+
+| Task Type | Evaluation Method | Example |
+|-----------|------------------|---------|
+| `financial_quantitative_computation` | Numerical ±1% tolerance | `1.2532` ≈ `1.26` ✓ |
+| `event_logic_reasoning` | Exact sequence match | `2,1,4,3` = `2,1,4,3` ✓ |
+| `user_sentiment_analysis` | Classification (case-insensitive) | `positive` = `POSITIVE` ✓ |
+
+```python
+from evaluators import BizFinBenchEvaluator
+
+evaluator = BizFinBenchEvaluator(tolerance=0.01)
+result = evaluator.evaluate(
+    predicted="1.2532",
+    expected="1.2532",
+    task_type="financial_quantitative_computation"
+)
+# result.score = 1.0, result.is_correct = True
+```
+
+#### PublicCsvEvaluator
+
+For public.csv (FAB++), evaluation uses **rubric operators**:
+
+- `correctness`: +1 if answer contains the criteria
+- `contradiction`: -0.5 penalty if answer contradicts reference
+
+```python
+from evaluators import PublicCsvEvaluator
+
+evaluator = PublicCsvEvaluator()
+rubric = [
+    {"operator": "correctness", "criteria": "$3.25 Billion"},
+    {"operator": "contradiction", "criteria": "Reference answer..."}
+]
+result = evaluator.evaluate(predicted="The cost was $3.25 Billion", rubric=rubric)
+```
 
 ---
+
+
 
 ## 5. CIO-Agent Orchestration Logic
 

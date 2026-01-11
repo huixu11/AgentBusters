@@ -327,6 +327,37 @@ python -m scripts.run_csv_eval \
 	--purple-endpoint http://localhost:9110 \
 	--output /tmp/summary.json --no-debate --limit 5
 
+# BizFinBench.v2 evaluation (29,578 Q&A pairs across 9 task types)
+# English (8 tasks): anomaly_information_tracing, conterfactual, event_logic_reasoning,
+#   financial_data_description, financial_multi_turn_perception, financial_quantitative_computation,
+#   stock_price_predict, user_sentiment_analysis
+# Chinese (9 tasks): all above + financial_report_analysis
+python -m scripts.run_bizfin_eval \
+	--dataset-path data/BizFinBench.v2 \
+	--task-type event_logic_reasoning \
+	--language en \
+	--purple-endpoint http://localhost:9110 \
+	--output /tmp/bizfin_summary.json --limit 10
+
+# List task types by language:
+python -c "from cio_agent.datasets import BizFinBenchProvider; print(BizFinBenchProvider.list_task_types_by_language())"
+
+# Dataset-specific evaluators (exact-match scoring, no LLM needed):
+# BizFinBench: numerical matching (±1% tolerance), sequence matching, classification
+python -m scripts.run_bizfin_simple \
+	--dataset-path data/BizFinBench.v2 \
+	--task-type financial_quantitative_computation \
+	--language en \
+	--purple-endpoint http://localhost:9110 \
+	--output /tmp/bizfin_results.json --limit 5
+
+# public.csv: correctness/contradiction rubric evaluation
+python -m scripts.run_csv_simple \
+	--dataset-path finance-agent/data/public.csv \
+	--purple-endpoint http://localhost:9110 \
+	--output /tmp/csv_results.json --limit 5
+
+
 # Alternative direct startup (stdio by default)
 # Default: stdio transport (not accessible via HTTP). Add --transport http for network access.
 python src/mcp_servers/sec_edgar.py                                      # Stdio only
