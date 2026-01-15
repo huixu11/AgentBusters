@@ -672,10 +672,151 @@ To ensure reliable evaluation over long periods, the CIO-Agent uses a persistent
 - **Persistence**: All task states, messages, and results are saved to disk.
 - **Resumability**: Evaluations can pick up where they left off if the server is restarted.
 - **Scalability**: Capable of handling hundreds of concurrent evaluation tasks without memory exhaustion.
+### 4.7 Dataset-Specific Evaluators (New in v1.1)
 
+Beyond the hierarchical Role Score (Macro/Fundamental/Execution), we support **dataset-specific evaluation** for different benchmark datasets:
 
+#### Architecture
+
+```
+src/evaluators/
+├── base.py                      # BaseDatasetEvaluator abstract class
+├── bizfinbench_evaluator.py     # For BizFinBench.v2 (exact match)
+├── public_csv_evaluator.py      # For public.csv (rubric-based)
+└── ... (Macro, Fundamental, Execution evaluators)
+```
+
+#### BizFinBenchEvaluator
+
+For BizFinBench.v2 dataset (29,578 Q&A pairs), evaluation is based on **exact match** by task type:
+
+| Task Type | Evaluation Method | Example |
+|-----------|------------------|---------|
+| `financial_quantitative_computation` | Numerical ±1% tolerance | `1.2532` ≈ `1.26` ✓ |
+| `event_logic_reasoning` | Exact sequence match | `2,1,4,3` = `2,1,4,3` ✓ |
+| `user_sentiment_analysis` | Classification (case-insensitive) | `positive` = `POSITIVE` ✓ |
+
+```python
+from evaluators import BizFinBenchEvaluator
+
+evaluator = BizFinBenchEvaluator(tolerance=0.01)
+result = evaluator.evaluate(
+    predicted="1.2532",
+    expected="1.2532",
+    task_type="financial_quantitative_computation"
+)
+# result.score = 1.0, result.is_correct = True
+```
+
+#### PublicCsvEvaluator
+
+For public.csv (FAB++), evaluation uses **rubric operators**:
+
+- `correctness`: +1 if answer contains the criteria
+- `contradiction`: -0.5 penalty if answer contradicts reference
+
+```python
+from evaluators import PublicCsvEvaluator
+
+evaluator = PublicCsvEvaluator()
+rubric = [
+    {"operator": "correctness", "criteria": "$3.25 Billion"},
+    {"operator": "contradiction", "criteria": "Reference answer..."}
+]
+result = evaluator.evaluate(predicted="The cost was $3.25 Billion", rubric=rubric)
+```
 
 ---
+
+### 4.8 Task Storage Architecture
+
+The Green Agent uses **DatabaseTaskStore** for persistent evaluation result storage. This is an upgrade from the official template's InMemoryTaskStore.
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  A2A Request Flow                   │
+├─────────────────────────────────────────────────────┤
+│  Client → A2AStarletteApplication                   │
+│           ↓                                         │
+│  DefaultRequestHandler                              │
+│           ↓                                         │
+│  GreenAgentExecutor.execute()                       │
+│           ↓                                         │
+│  TaskUpdater (updates status, adds artifacts)       │
+│           ↓                                         │
+│  DatabaseTaskStore.set_task() ─→ SQLite DB          │
+└─────────────────────────────────────────────────────┘
+```
+
+#### Database Schema
+
+```sql
+CREATE TABLE tasks (
+    id VARCHAR(36) PRIMARY KEY,       -- Task UUID
+    context_id VARCHAR(36) NOT NULL,  -- Session/conversation ID
+    kind VARCHAR(16) NOT NULL,        -- "task"
+    status JSON NOT NULL,             -- {state, message, timestamp}
+    artifacts JSON,                   -- Evaluation results
+    history JSON,                     -- Status history
+    metadata JSON                     -- Additional metadata
+);
+```
+
+#### Artifact Structure
+
+Evaluation results are stored in the `artifacts` field:
+
+```json
+{
+  "artifactId": "uuid",
+  "name": "evaluation_result",
+  "parts": [
+    {
+      "kind": "text",
+      "text": "FAB++ Multi-Dataset Evaluation Complete\nAccuracy: 80%"
+    },
+    {
+      "kind": "data",
+      "data": {
+        "benchmark": "FAB++ Full Evaluation",
+        "num_evaluated": 100,
+        "average_score": 0.75,
+        "by_dataset": {"bizfinbench": {...}, "public_csv": {...}},
+        "results": [{...}, {...}]
+      }
+    }
+  ]
+}
+```
+
+#### Why DatabaseTaskStore over InMemoryTaskStore?
+
+| Feature | InMemoryTaskStore | DatabaseTaskStore |
+|---------|-------------------|-------------------|
+| **Persistence** | ❌ Lost on restart | ✅ Persisted |
+| **Capacity** | Limited by RAM | Limited by disk |
+| **Concurrency** | Single process | Multi-process safe |
+| **Audit Trail** | ❌ None | ✅ Full history |
+| **Use Case** | Demo/Testing | Production |
+
+#### Configuration
+
+```python
+# a2a_server.py
+database_url = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///tasks.db")
+engine = create_async_engine(database_url)
+task_store = DatabaseTaskStore(engine)
+```
+
+For production, switch to PostgreSQL:
+```bash
+export DATABASE_URL="postgresql+asyncpg://user:pass@host/db"
+```
+
+---
+
+
+
 
 ## 5. CIO-Agent Orchestration Logic
 
@@ -1655,6 +1796,113 @@ ALPHA_SCORE_ENABLED=true
 
 ---
 
+## Extending FAB++: Adding New Datasets
+
+The FAB++ evaluation system is designed to be extensible. Follow these steps to add a new dataset:
+
+### Step 1: Create Data Provider
+
+Create a provider in `src/cio_agent/datasets/`:
+
+```python
+# src/cio_agent/datasets/new_dataset_provider.py
+from dataclasses import dataclass
+from typing import List
+
+@dataclass
+class NewDatasetExample:
+    example_id: str
+    question: str
+    answer: str
+    # Add dataset-specific fields
+
+class NewDatasetProvider:
+    def __init__(self, path: str, limit: int = None):
+        self.path = path
+        self.limit = limit
+    
+    def load(self) -> List[NewDatasetExample]:
+        examples = []
+        # Parse your dataset file
+        return examples[:self.limit] if self.limit else examples
+```
+
+### Step 2: Create Evaluator
+
+Create an evaluator in `src/evaluators/`:
+
+```python
+# src/evaluators/new_dataset_evaluator.py
+from evaluators.base import EvalResult
+
+class NewDatasetEvaluator:
+    def evaluate(self, predicted: str, expected: str, **kwargs) -> EvalResult:
+        is_correct = your_comparison_logic(predicted, expected)
+        return EvalResult(
+            score=1.0 if is_correct else 0.0,
+            feedback="Correct!" if is_correct else "Incorrect",
+        )
+```
+
+### Step 3: Add Configuration Type
+
+Update `src/cio_agent/eval_config.py`:
+
+```python
+class NewDatasetConfig(BaseModel):
+    type: Literal["new_dataset"] = "new_dataset"
+    path: str
+    limit: Optional[int] = None
+    shuffle: bool = True
+    weight: float = 1.0
+
+# Update DatasetConfig Union
+DatasetConfig = Union[..., NewDatasetConfig]
+```
+
+### Step 4: Register in Loader
+
+Update `ConfigurableDatasetLoader._load_dataset()`:
+
+```python
+elif config.type == "new_dataset":
+    return self._load_new_dataset(config)
+```
+
+### Step 5: Register Evaluator
+
+Update `GreenAgent.__init__()`:
+
+```python
+self._evaluators = {
+    "bizfinbench": BizFinBenchEvaluator(),
+    "public_csv": PublicCsvEvaluator(),
+    "new_dataset": NewDatasetEvaluator(),  # Add here
+}
+```
+
+### Step 6: Update Config File
+
+```yaml
+# config/eval_full.yaml
+datasets:
+  - type: new_dataset
+    path: data/new_dataset.json
+    limit: 50
+    weight: 1.0
+```
+
+### Extension Checklist
+
+- [ ] Provider implements `load()` returning examples
+- [ ] Evaluator implements `evaluate()` returning `EvalResult`
+- [ ] Config type added to `eval_config.py`
+- [ ] Loader handles new type in `_load_dataset()`
+- [ ] GreenAgent registers evaluator in `_evaluators`
+- [ ] Tests added for provider and evaluator
+
+---
+
 ## Conclusion
 
 FAB++ transforms the Finance Agent Benchmark from a static QA dataset into a **dynamic, adversarial Chief Investment Officer evaluation environment**. By introducing:
@@ -1676,6 +1924,7 @@ FAB++ is production-ready, fully containerized, and positioned to become the def
 **Team AgentBusters**
 *Building the future of financial agent evaluation*
 
-**Last Updated**: 2026-01-08
-**Document Version**: 1.1
-**Architecture Status**: Production Ready (A2A Server Implemented)
+**Last Updated**: 2026-01-11
+**Document Version**: 1.2
+**Architecture Status**: Production Ready (A2A Server + Multi-Dataset Support)
+
