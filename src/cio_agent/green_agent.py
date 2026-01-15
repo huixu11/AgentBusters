@@ -344,10 +344,16 @@ class GreenAgent:
                 # Create a default task if generation fails
                 from datetime import datetime
                 from cio_agent.models import GroundTruth, FinancialData, TaskRubric
-                
+
+                # Convert task_category string to enum
+                try:
+                    default_category = TaskCategory(task_category)
+                except ValueError:
+                    default_category = TaskCategory.BEAT_OR_MISS
+
                 tasks = [FABTask(
                     question_id=f"fab_{ticker}_eval",
-                    category=TaskCategory.BEAT_OR_MISS,
+                    category=default_category,
                     question=f"Did {ticker} beat or miss analyst expectations in the most recent quarter?",
                     ticker=ticker,
                     fiscal_year=2026,
