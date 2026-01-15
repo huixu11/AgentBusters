@@ -31,7 +31,7 @@ class FinanceAnalysisAgent:
     def __init__(
         self,
         host: str = "localhost",
-        port: int = 8001,
+        port: int = 8101,
         llm_client: Any = None,
         model: str = "gpt-4o",
         simulation_date: datetime | None = None,
@@ -185,7 +185,7 @@ class FinanceAnalysisAgent:
 
 async def create_agent(
     host: str = "localhost",
-    port: int = 8001,
+    port: int = 8101,
     openai_api_key: str | None = None,
     anthropic_api_key: str | None = None,
     model: str | None = None,
@@ -212,8 +212,13 @@ async def create_agent(
     if openai_api_key:
         try:
             from openai import OpenAI
-            llm_client = OpenAI(api_key=openai_api_key)
-            default_model = model or "gpt-4o"
+            import os
+            base_url = os.environ.get("OPENAI_API_BASE")
+            llm_client = OpenAI(
+                api_key=openai_api_key,
+                base_url=base_url  # Supports local vLLM
+            )
+            default_model = model or os.environ.get("LLM_MODEL", "gpt-4o")
         except ImportError:
             pass
 

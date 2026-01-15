@@ -156,7 +156,7 @@ services:
       risk-metrics-mcp:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "9109:9109"
     volumes:
       - evaluation-results:/data/results
       - ./finance-agent/data:/app/data:ro
@@ -181,7 +181,7 @@ services:
       - MCP_TRADING_URL=http://trading-sim-mcp:8000/mcp
       - MCP_RISK_URL=http://risk-metrics-mcp:8000/mcp
     ports:
-      - "8010:8001"
+      - "9110:8001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
