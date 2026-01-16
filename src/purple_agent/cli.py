@@ -32,6 +32,9 @@ def serve(
     host: str = typer.Option("0.0.0.0", "--host", "-h", help="Host to bind to"),
     port: int = typer.Option(8001, "--port", "-p", help="Port to listen on"),
     reload: bool = typer.Option(False, "--reload", "-r", help="Enable auto-reload"),
+    card_url: Optional[str] = typer.Option(
+        None, "--card-url", help="Public URL for agent card (for container networking)"
+    ),
     simulation_date: Optional[str] = typer.Option(
         None, "--simulation-date", "-d", help="Simulation date (YYYY-MM-DD)"
     ),
