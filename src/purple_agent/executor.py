@@ -222,6 +222,71 @@ class FinanceAgentExecutor(AgentExecutor):
         "general",              # General financial questions
     ]
 
+    async def _extract_tickers_with_llm(self, user_input: str) -> list[str] | None:
+        """
+        Use LLM to extract stock ticker symbols from the question.
+
+        Args:
+            user_input: The user's question
+
+        Returns:
+            List of ticker symbols or None if extraction fails
+        """
+        if self.llm_client is None:
+            return None
+
+        extraction_prompt = f"""Extract stock ticker symbols from this financial question.
+
+RULES:
+- Only extract REAL stock ticker symbols (e.g., AAPL, MSFT, TSLA, NVDA, GOOG)
+- Do NOT extract common words that happen to be uppercase (e.g., JSON, XML, API, CEO, CFO)
+- Do NOT extract financial abbreviations (e.g., EPS, PE, ROE, CAGR, NPV)
+- Do NOT extract currency codes (e.g., USD, EUR, GBP)
+- If no real stock tickers are found, return "NONE"
+- Return tickers as comma-separated list (e.g., "AAPL,MSFT,TSLA")
+
+QUESTION: {user_input[:1000]}
+
+TICKERS (or NONE):"""
+
+        try:
+            if hasattr(self.llm_client, "chat"):
+                # OpenAI-style client
+                response = await asyncio.to_thread(
+                    lambda: self.llm_client.chat.completions.create(
+                        model=self.model,
+                        messages=[{"role": "user", "content": extraction_prompt}],
+                        temperature=0,
+                        max_tokens=50,
+                    )
+                )
+                result = response.choices[0].message.content.strip().upper()
+            elif hasattr(self.llm_client, "messages"):
+                # Anthropic-style client
+                response = await asyncio.to_thread(
+                    lambda: self.llm_client.messages.create(
+                        model=self.model,
+                        max_tokens=50,
+                        messages=[{"role": "user", "content": extraction_prompt}],
+                    )
+                )
+                result = response.content[0].text.strip().upper()
+            else:
+                return None
+
+            # Parse result
+            if result == "NONE" or not result:
+                return []
+
+            # Clean and validate tickers
+            tickers = [t.strip() for t in result.split(",") if t.strip()]
+            # Filter to valid ticker format (1-5 uppercase letters)
+            valid_tickers = [t for t in tickers if re.match(r'^[A-Z]{1,5}$', t)]
+            return valid_tickers
+
+        except Exception:
+            return None
+
     async def _classify_task_with_llm(self, user_input: str) -> str | None:
         """
         Use LLM to classify the task type.
@@ -359,25 +424,27 @@ Respond with ONLY the task type (e.g., "options_pricing"). Nothing else."""
             "quarter": None,
         }
 
-        # Extract ticker symbols (uppercase letters, 1-5 chars)
-        tickers = re.findall(r'\b([A-Z]{1,5})\b', user_input)
-        # Filter common words that might match (including tech/finance terms)
-        common_words = {
-            # Finance terms
-            "Q", "FY", "EPS", "PE", "ROE", "YOY", "QOQ", "CEO", "CFO", "SEC", "AI", "US", "GDP",
-            "ATM", "OTM", "ITM", "DTE", "IV", "HV", "BS", "NPV", "IRR", "EBIT", "WACC", "DCF",
-            "IPO", "ETF", "NAV", "AUM", "P", "E", "B", "S", "M", "K", "T", "USD", "EUR", "GBP",
-            # Tech/format terms often in BizFinBench questions
-            "JSON", "XML", "HTML", "CSV", "API", "HTTP", "URL", "SQL", "PHP", "CSS", "JS",
-            # Common words in questions
-            "THE", "AND", "FOR", "NOT", "ARE", "BUT", "ALL", "CAN", "HER", "WAS", "ONE", "OUR",
-            "OUT", "YOU", "HAD", "HAS", "HIS", "HOW", "ITS", "MAY", "NEW", "NOW", "OLD", "SEE",
-            "WAY", "WHO", "DID", "GET", "LET", "PUT", "SAY", "SHE", "TOO", "USE", "YES", "NO",
-            "IF", "IN", "IS", "IT", "OF", "ON", "OR", "TO", "UP", "SO", "BY", "AS", "AT", "AN",
-            # Data/analysis terms
-            "DATA", "FILE", "FROM", "INTO", "NULL", "TRUE", "WITH", "YEAR", "DATE", "THIS",
-        }
-        task_info["tickers"] = [t for t in tickers if t not in common_words]
+        # Try LLM-based ticker extraction first (more accurate)
+        llm_tickers = await self._extract_tickers_with_llm(user_input)
+        if llm_tickers is not None:
+            task_info["tickers"] = llm_tickers
+            task_info["ticker_extraction_method"] = "llm"
+        else:
+            # Fallback to regex with common words filter
+            tickers = re.findall(r'\b([A-Z]{1,5})\b', user_input)
+            common_words = {
+                "Q", "FY", "EPS", "PE", "ROE", "YOY", "QOQ", "CEO", "CFO", "SEC", "AI", "US", "GDP",
+                "ATM", "OTM", "ITM", "DTE", "IV", "HV", "BS", "NPV", "IRR", "EBIT", "WACC", "DCF",
+                "IPO", "ETF", "NAV", "AUM", "P", "E", "B", "S", "M", "K", "T", "USD", "EUR", "GBP",
+                "JSON", "XML", "HTML", "CSV", "API", "HTTP", "URL", "SQL", "PHP", "CSS", "JS",
+                "THE", "AND", "FOR", "NOT", "ARE", "BUT", "ALL", "CAN", "HER", "WAS", "ONE", "OUR",
+                "OUT", "YOU", "HAD", "HAS", "HIS", "HOW", "ITS", "MAY", "NEW", "NOW", "OLD", "SEE",
+                "WAY", "WHO", "DID", "GET", "LET", "PUT", "SAY", "SHE", "TOO", "USE", "YES", "NO",
+                "IF", "IN", "IS", "IT", "OF", "ON", "OR", "TO", "UP", "SO", "BY", "AS", "AT", "AN",
+                "DATA", "FILE", "FROM", "INTO", "NULL", "TRUE", "WITH", "YEAR", "DATE", "THIS",
+            }
+            task_info["tickers"] = [t for t in tickers if t not in common_words]
+            task_info["ticker_extraction_method"] = "regex"
 
         # Try LLM classification first, fall back to keywords
         llm_task_type = await self._classify_task_with_llm(user_input)
