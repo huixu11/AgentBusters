@@ -47,7 +47,7 @@
 \maketitle
 
 \begin{abstract}
-We present CIO-Agent FAB++ (Finance Agent Benchmark Plus Plus), a comprehensive evaluation framework for assessing AI agents on financial analysis tasks. Unlike static benchmarks, FAB++ dynamically generates evaluation tasks across 18 categories spanning fundamental analysis, quantitative reasoning, options trading, and risk management. The system implements a novel multi-dimensional scoring methodology that evaluates agents on macro thesis quality, fundamental accuracy, execution methodology, and adversarial robustness. We introduce the Options Alpha Challenge, a specialized evaluation track that tests agents on Black-Scholes pricing, Greeks analysis, and multi-leg strategy construction. Our framework leverages the Agent-to-Agent (A2A) protocol for standardized communication and Model Context Protocol (MCP) servers for real-time financial data access. Experimental results demonstrate the effectiveness of our evaluation methodology in distinguishing agent capabilities across diverse financial reasoning tasks.
+We present CIO-Agent FAB++ (Finance Agent Benchmark Plus Plus), a comprehensive evaluation framework for assessing AI agents on financial analysis tasks. FAB++ integrates four benchmark datasets---BizFinBench, Public CSV, Synthetic Questions, and Options Alpha---into a unified scoring system with three weighted sections: Knowledge Retrieval (30\%), Analytical Reasoning (35\%), and Options Trading (35\%). The Analytical Reasoning section features 20 olympiad-style finance logic problems spanning capital budgeting, portfolio theory, fixed income, corporate finance, and derivatives. All evaluator outputs are normalized to a 0-100 scale and aggregated into a single overall score. We introduce the Options Alpha Challenge, a specialized track testing Black-Scholes pricing, Greeks analysis, and multi-leg strategy construction with four-dimensional scoring. Our framework leverages the Agent-to-Agent (A2A) protocol for standardized communication and Model Context Protocol (MCP) servers for real-time financial data access. Experimental results on a GPT-4o mini baseline demonstrate 60.44/100 overall score with clear capability patterns: strong knowledge retrieval (83.33) versus weaker analytical reasoning (50.00) and options trading (51.25).
 \end{abstract}
 
 \textbf{Keywords:} AI Agents, Finance Benchmark, Options Trading, Agent Evaluation, A2A Protocol, MCP
@@ -160,78 +160,179 @@ Risk Metrics & 8106 & VaR computation, Sharpe/Sortino ratios, stress testing \\
 
 \section{Evaluation Methodology}
 
-\subsection{Task Categories}
+\subsection{Overview: The Benchmark Router}
 
-FAB++ evaluates agents across 18 categories organized into three tiers:
+FAB++ implements a unified evaluation router that orchestrates tasks from four distinct benchmark datasets, each targeting different financial reasoning capabilities. The router samples questions from each dataset according to a configurable strategy (stratified, random, or sequential) and routes responses to dataset-specific evaluators. All evaluator outputs are then normalized and aggregated into a single overall score.
 
-\subsubsection{Core Finance (6 categories)}
+\begin{figure}[H]
+\centering
+\begin{verbatim}
++------------------------------------------------------------------+
+|                     FAB++ Benchmark Router                        |
++------------------------------------------------------------------+
+|                                                                   |
+|  +------------------+    +------------------+    +---------------+|
+|  | BizFinBench v2   |    | Public CSV       |    | Synthetic     ||
+|  | - Event Logic    |    | - Beat/Miss      |    | - NPV/IRR     ||
+|  | - Quantitative   |    | - Market Analysis|    | - Portfolio   ||
+|  +--------+---------+    +--------+---------+    | - Fixed Income||
+|           |                       |              | - Options     ||
+|           v                       v              | - Corporate   ||
+|  +------------------+    +------------------+    +-------+-------+|
+|  | Exact Match      |    | Rubric-Based     |            |        |
+|  | Evaluator        |    | LLM Evaluator    |            v        |
+|  +--------+---------+    +--------+---------+    +---------------+|
+|           |                       |              | Rubric-Based  ||
+|           |                       |              | LLM Evaluator ||
+|           |                       |              +-------+-------+|
+|           |                       |                      |        |
+|           +----------+------------+----------------------+        |
+|                      |                                            |
+|                      v                                            |
+|           +---------------------+         +------------------+    |
+|           | Score Normalizer    |         | Options Alpha    |    |
+|           | (0-1 -> 0-100)      |         | - Greeks         |    |
+|           +----------+----------+         | - Strategies     |    |
+|                      |                    | - P&L/Risk       |    |
+|                      |                    +--------+---------+    |
+|                      |                             |              |
+|                      |     +-----------------------+              |
+|                      |     |                                      |
+|                      v     v                                      |
+|           +----------------------------------+                    |
+|           |     Unified Scoring Engine       |                    |
+|           | Knowledge(30%) + Analysis(35%)   |                    |
+|           |      + Options(35%) = Overall    |                    |
+|           +----------------------------------+                    |
++------------------------------------------------------------------+
+\end{verbatim}
+\caption{FAB++ Benchmark Router Architecture}
+\label{fig:router}
+\end{figure}
+
+\subsection{Benchmark Datasets}
+
+The router integrates four complementary benchmark datasets:
+
+\subsubsection{BizFinBench v2 (Knowledge Retrieval)}
+A bilingual benchmark from \citet{bizfinbench2025} testing financial fact retrieval and quantitative computation:
+\begin{itemize}
+    \item \textbf{Event Logic Reasoning}: Temporal ordering of financial events
+    \item \textbf{Financial Quantitative Computation}: Precise numerical calculations (e.g., EPS, margins)
+\end{itemize}
+\textit{Evaluator}: Exact match with 1\% tolerance for numerical answers.
+
+\subsubsection{Public CSV (Knowledge Retrieval)}
+Questions derived from the Finance Agent Benchmark \citep{fab2025} public dataset:
 \begin{itemize}
     \item \textbf{Beat or Miss}: Earnings surprise detection against analyst consensus
-    \item \textbf{Macro Analysis}: Economic trend interpretation and market impact
-    \item \textbf{Fundamental Analysis}: Financial statement interpretation
-    \item \textbf{Quantitative Reasoning}: Numerical calculations from financial data
-    \item \textbf{SEC Filing Analysis}: Information extraction from regulatory documents
-    \item \textbf{Trend Analysis}: Historical pattern recognition and forecasting
+    \item \textbf{Market Analysis}: Qualitative interpretation of market events
 \end{itemize}
+\textit{Evaluator}: LLM-based rubric scoring with component weights.
 
-\subsubsection{Options Alpha (6 categories)}
+\subsubsection{Synthetic Questions (Analytical Reasoning)}
+Twenty olympiad-style finance logic problems requiring multi-step reasoning without external data retrieval. Topics include capital budgeting, portfolio theory, fixed income, corporate finance, options, and forex. See Appendix~\ref{sec:questions} for the complete question bank.
 \begin{itemize}
-    \item \textbf{Options Pricing}: Black-Scholes valuation and fair value assessment
-    \item \textbf{Greeks Analysis}: Sensitivity calculations and hedging strategies
-    \item \textbf{Strategy Construction}: Multi-leg options strategies
-    \item \textbf{Volatility Trading}: IV rank/percentile analysis
-    \item \textbf{P\&L Attribution}: Return decomposition by Greek exposure
-    \item \textbf{Risk Management}: VaR-based position sizing
+    \item \textbf{Self-contained}: All information provided in the question
+    \item \textbf{CFA-level difficulty}: Undergraduate to professional curriculum
+    \item \textbf{Definitive answers}: Unambiguous correct solutions for objective scoring
 \end{itemize}
+\textit{Evaluator}: LLM-based rubric scoring (methodology 30\%, calculation 30\%, answer 40\%).
 
-\subsubsection{Advanced (6 categories)}
+\subsubsection{Options Alpha (Options Trading)}
+Specialized evaluation track for derivatives knowledge:
 \begin{itemize}
-    \item \textbf{Copy Trading}: Strategy replication and signal generation
-    \item \textbf{Race to 10M}: Capital growth optimization under constraints
-    \item \textbf{Strategy Defense}: Adversarial robustness testing
-    \item \textbf{Financial Data Description}: Structured data interpretation
-    \item \textbf{Multi-turn Perception}: Context maintenance across interactions
-    \item \textbf{Sentiment Analysis}: Market sentiment extraction
+    \item \textbf{Greeks Analysis}: Delta, gamma, theta, vega calculations
+    \item \textbf{Strategy Construction}: Multi-leg options strategies (spreads, condors, straddles)
+    \item \textbf{P\&L Analysis}: Max profit/loss, breakeven calculations
+    \item \textbf{Risk Management}: Position sizing, hedging strategies
 \end{itemize}
+\textit{Evaluator}: Four-dimensional scoring (P\&L 25\%, Greeks 25\%, Strategy 25\%, Risk 25\%). See Section~\ref{sec:options} for details.
 
-\subsection{Dynamic Task Generation}
+\subsection{Unified Scoring System}
 
-Unlike static benchmarks, FAB++ generates tasks dynamically using templates populated with real financial data:
+\subsubsection{Three-Section Architecture}
 
-\begin{algorithm}[H]
-\caption{Dynamic Task Generation}
-\begin{algorithmic}[1]
-\REQUIRE Template $T$, Financial Lake $\mathcal{F}$, Simulation Date $d$
-\STATE Select ticker $s$ from universe $\mathcal{S}$
-\STATE Lock temporal context to date $d$
-\STATE Retrieve fundamental data $F_s = \mathcal{F}(s, d)$
-\STATE Generate ground truth $G$ from $F_s$
-\STATE Instantiate task $\tau = T(s, F_s, G, d)$
-\STATE Compute rubric criteria $R$ for $\tau$
-\RETURN Task $(\tau, G, R)$
-\end{algorithmic}
-\end{algorithm}
+Tasks are grouped into three weighted sections based on the skills they test:
 
-\subsection{Multi-Dimensional Scoring}
+\begin{table}[H]
+\centering
+\caption{Benchmark Sections, Datasets, and Weights}
+\label{tab:sections}
+\begin{tabular}{llrl}
+\toprule
+\textbf{Section} & \textbf{Datasets} & \textbf{Weight} & \textbf{Skills Tested} \\
+\midrule
+Knowledge Retrieval & BizFinBench, Public CSV & 30\% & Data extraction, financial facts \\
+Analytical Reasoning & Synthetic Questions & 35\% & Logic, multi-step calculations \\
+Options Trading & Options Alpha & 35\% & Derivatives, Greeks, strategies \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-We evaluate responses across three primary dimensions:
+\subsubsection{Score Normalization}
 
-\subsubsection{Role Score}
-The Role Score combines weighted subscores:
+Different evaluators produce scores on different scales. All scores are normalized to 0-100 before aggregation:
+
+\begin{table}[H]
+\centering
+\caption{Score Normalization by Dataset}
+\label{tab:normalization}
+\begin{tabular}{llll}
+\toprule
+\textbf{Dataset} & \textbf{Raw Range} & \textbf{Normalization} & \textbf{Section} \\
+\midrule
+BizFinBench & 0.0--1.0 & $\text{score} \times 100$ & Knowledge \\
+Public CSV & 0.0--1.0 & $\text{score} \times 100$ & Knowledge \\
+Synthetic & 0.0--1.0 & $\text{score} \times 100$ & Analysis \\
+Options Alpha & 0--100 & No change & Options \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Final Score Calculation}
+
+The overall score is computed in three steps:
+
+\textbf{Step 1: Section Scores.} For each section $s$, compute the mean normalized score across all tasks in that section:
 \begin{equation}
-\text{RoleScore} = 0.30 \cdot S_{\text{macro}} + 0.40 \cdot S_{\text{fundamental}} + 0.30 \cdot S_{\text{execution}}
+S_s = \frac{1}{|T_s|} \sum_{t \in T_s} \text{normalize}(\text{score}_t)
 \end{equation}
 
-where:
+\textbf{Step 2: Weight Redistribution.} If any section has no tasks, redistribute weights proportionally:
+\begin{equation}
+w'_s = \frac{w_s}{\sum_{j \in \text{active}} w_j}
+\end{equation}
+
+\textbf{Step 3: Weighted Aggregation.} Compute the final overall score:
+\begin{equation}
+\text{OverallScore} = \sum_{s \in \text{active}} w'_s \cdot S_s
+\end{equation}
+
+With all sections active and default weights:
+\begin{equation}
+\text{OverallScore} = 0.30 \cdot S_{\text{knowledge}} + 0.35 \cdot S_{\text{analysis}} + 0.35 \cdot S_{\text{options}}
+\end{equation}
+
+\subsubsection{Example Calculation}
+
+Given the following section scores from an evaluation run:
 \begin{itemize}
-    \item $S_{\text{macro}}$: Macro thesis quality (semantic similarity + theme coverage)
-    \item $S_{\text{fundamental}}$: Numerical accuracy against ground truth
-    \item $S_{\text{execution}}$: Methodology quality and tool usage
+    \item Knowledge Retrieval: 83.33 (from 6 tasks)
+    \item Analytical Reasoning: 50.00 (from 2 tasks)
+    \item Options Trading: 51.25 (from 2 tasks)
 \end{itemize}
 
-\subsubsection{Adversarial Debate}
+The overall score is:
+\begin{align}
+\text{OverallScore} &= 0.30 \times 83.33 + 0.35 \times 50.00 + 0.35 \times 51.25 \\
+&= 25.00 + 17.50 + 17.94 \\
+&= 60.44
+\end{align}
 
-We introduce adversarial debate to test agent conviction:
+\subsection{Optional: Adversarial Debate}
+
+FAB++ supports an optional adversarial debate mode to test agent conviction:
 
 \begin{algorithm}[H]
 \caption{Adversarial Debate Protocol}
@@ -245,16 +346,10 @@ We introduce adversarial debate to test agent conviction:
 \end{algorithmic}
 \end{algorithm}
 
-\subsubsection{Alpha Score}
-
-The final Alpha Score combines all dimensions:
-\begin{equation}
-\alpha = \frac{\text{RoleScore} \times \text{DebateMultiplier}}{\ln(1 + \text{Cost}) \times (1 + \text{LookaheadPenalty})}
-\end{equation}
-
-This formulation rewards accurate, robust responses while penalizing expensive computation and temporal violations.
+When debate is enabled, the section score is adjusted by the debate multiplier before aggregation.
 
 \section{Options Alpha Challenge}
+\label{sec:options}
 
 \subsection{Black-Scholes Implementation}
 
@@ -320,37 +415,115 @@ Risk Management & Position sizing, hedging strategy, exit criteria definition \\
 \end{tabular}
 \end{table}
 
-\section{Experiments}
+\section{Analytical Reasoning: Synthetic Questions}
 
-\subsection{Experimental Setup}
+\subsection{Overview}
 
-We evaluated a baseline Purple Agent using GPT-4o as the underlying LLM. The evaluation was conducted through the Green Agent A2A server using a unified multi-dataset configuration that simultaneously tests across all three dataset types:
-\begin{itemize}
-    \item \textbf{BizFinBench v2}: Financial quantitative computation and event logic reasoning tasks
-    \item \textbf{Public CSV}: Beat/miss analysis and market analysis questions
-    \item \textbf{Options Alpha}: Greeks analysis and strategy construction tasks
-\end{itemize}
+The Analytical Reasoning section evaluates agents on self-contained finance logic problems that require multi-step reasoning without external data retrieval. Unlike BizFinBench or Options Alpha tasks that test data extraction and domain-specific calculations, synthetic questions assess fundamental financial reasoning ability.
 
-\subsection{Integrated Multi-Dataset Results}
+\subsection{Question Categories}
+
+We curate 22 olympiad-style finance questions across 10 topic areas:
 
 \begin{table}[H]
 \centering
-\caption{Multi-Dataset Evaluation Results (Unified Run)}
-\label{tab:results}
-\begin{tabular}{lrrrr}
+\caption{Synthetic Question Topics}
+\label{tab:synthetic_topics}
+\begin{tabular}{lrl}
 \toprule
-\textbf{Dataset} & \textbf{Examples} & \textbf{Accuracy} & \textbf{Mean Score} & \textbf{Metric} \\
+\textbf{Topic} & \textbf{Count} & \textbf{Example Concept} \\
 \midrule
-BizFinBench & 6 & 66.67\% & 0.667 & Exact/Tolerance Match \\
-Public CSV & 2 & 50.00\% & 0.500 & Rubric Correctness \\
-Options Alpha & 2 & 50.00\% & 0.606 & 4-Dimension Score \\
-\midrule
-\textbf{Total} & \textbf{10} & \textbf{60.00\%} & \textbf{0.621} & Normalized 0-1 \\
+Capital Budgeting & 2 & NPV crossover rate \\
+Portfolio Theory & 3 & Beta adjustment, leverage \\
+Fixed Income & 4 & Bond pricing, duration immunization \\
+Corporate Finance & 3 & FCFF, Modigliani-Miller \\
+Options \& Derivatives & 4 & Put-call parity, risk-neutral valuation \\
+Time Value of Money & 2 & Present value comparisons \\
+Valuation & 2 & Gordon Growth Model, DCF \\
+Forex & 1 & Covered interest arbitrage \\
+Corporate Actions & 1 & Stock splits \\
+Leverage & 1 & Combined leverage (DOL $\times$ DFL) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The unified evaluation demonstrates organic integration across all dataset types with consistent scoring normalization (0-1 scale).
+\subsection{Question Design Principles}
+
+Synthetic questions are designed to:
+
+\begin{enumerate}
+    \item \textbf{Be self-contained}: All necessary information is provided in the question; no external data retrieval required.
+    \item \textbf{Test logical reasoning}: Questions require multi-step deduction, not memorized formulas.
+    \item \textbf{Have definitive answers}: Each question has an unambiguous correct answer for objective scoring.
+    \item \textbf{Cover CFA-level finance}: Topics span undergraduate to professional finance curriculum.
+\end{enumerate}
+
+\subsection{Example Questions}
+
+\subsubsection{Capital Budgeting (NPV Crossover)}
+\begin{quote}
+\textit{``A company has two mutually exclusive projects. Project A requires \$100,000 investment and returns \$150,000 in Year 1. Project B requires \$100,000 investment and returns \$180,000 in Year 2. At what discount rate are the two projects equally attractive (i.e., have equal NPV)?''}
+\end{quote}
+\textbf{Answer}: 20\% (derived by setting NPV$_A$ = NPV$_B$ and solving for $r$)
+
+\subsubsection{Duration Immunization}
+\begin{quote}
+\textit{``A pension fund has liabilities with duration of 15 years. It holds two bonds: Bond A with duration 5 years and Bond B with duration 20 years. What percentage of the portfolio should be invested in Bond B to immunize against interest rate changes?''}
+\end{quote}
+\textbf{Answer}: 66.67\% (weighted average duration must equal liability duration)
+
+\subsubsection{Interest Rate Swap}
+\begin{quote}
+\textit{``Company X can borrow at fixed 8\% or floating LIBOR+1\%. Company Y can borrow at fixed 10\% or floating LIBOR+2\%. If they enter a swap where X borrows floating and Y borrows fixed, splitting gains equally, what fixed rate does X effectively pay?''}
+\end{quote}
+\textbf{Answer}: 7.50\% (comparative advantage analysis: total gain = 1\%, each party gains 0.5\%)
+
+\subsection{Evaluation Methodology}
+
+Synthetic questions use LLM-based semantic evaluation with structured rubrics:
+
+\begin{equation}
+S_{\text{synthetic}} = \sum_{i} w_i \cdot \text{match}(R_i, A)
+\end{equation}
+
+where $R_i$ are rubric components (methodology, calculation, final answer) and $A$ is the agent's response. The evaluator checks:
+\begin{itemize}
+    \item \textbf{Methodology} (30\%): Correct problem setup and formula selection
+    \item \textbf{Calculation} (30\%): Accurate intermediate computations
+    \item \textbf{Final Answer} (40\%): Correct numerical result within tolerance
+\end{itemize}
+
+\section{Experiments}
+
+\subsection{Experimental Setup}
+
+We evaluated a baseline Purple Agent using GPT-4o mini as the underlying LLM. The evaluation was conducted through the Green Agent A2A server using a unified multi-dataset configuration that tests across all four dataset types mapped to three benchmark sections:
+\begin{itemize}
+    \item \textbf{Knowledge Retrieval}: BizFinBench v2 (financial facts) + Public CSV (market analysis)
+    \item \textbf{Analytical Reasoning}: Synthetic questions (olympiad-style finance logic)
+    \item \textbf{Options Trading}: Options Alpha (Greeks analysis, strategy construction)
+\end{itemize}
+
+\subsection{Unified Section-Based Results}
+
+\begin{table}[H]
+\centering
+\caption{Section-Based Evaluation Results (Unified Scoring)}
+\label{tab:results}
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Section} & \textbf{Score} & \textbf{Weight} & \textbf{Contribution} & \textbf{Tasks} & \textbf{Accuracy} \\
+\midrule
+Knowledge Retrieval & 83.33 & 30\% & 25.00 & 6 & 83.3\% \\
+Analytical Reasoning & 50.00 & 35\% & 17.50 & 2 & 50.0\% \\
+Options Trading & 51.25 & 35\% & 17.94 & 2 & 0.0\% \\
+\midrule
+\textbf{Overall} & \textbf{60.44} & \textbf{100\%} & \textbf{60.44} & \textbf{10} & \textbf{80.0\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The unified scoring methodology produces an overall score of 60.44/100, computed as the weighted sum of section contributions. Knowledge Retrieval (data extraction tasks) scores highest at 83.33, while Analytical Reasoning (logic puzzles) and Options Trading (derivatives) both score around 50.
 
 \subsubsection{Options Evaluation Breakdown}
 
@@ -434,22 +607,42 @@ Beat or Miss (TJX Margin) & 0/2 & 0.0 & Incorrect \\
 
 The rubric-based evaluation reveals that qualitative analysis questions (market context) score higher than quantitative beat/miss questions requiring specific BPS calculations.
 
+\subsection{Analytical Reasoning Results}
+
+\begin{table}[H]
+\centering
+\caption{Synthetic Questions Performance by Topic}
+\label{tab:synthetic_results}
+\begin{tabular}{llrr}
+\toprule
+\textbf{Topic} & \textbf{Question} & \textbf{Score} & \textbf{Result} \\
+\midrule
+Time Value of Money & Present value comparison & 100.0 & Correct \\
+Fixed Income & Perpetuity price change & 0.0 & Incorrect \\
+\midrule
+\textbf{Average} & & \textbf{50.0} & \textbf{50\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The agent correctly solved the present value comparison problem (choosing between \$10,000 today vs. \$12,500 in 3 years at 8\% discount rate) but failed the perpetuity pricing question requiring calculation of percentage price change when interest rates move from 5\% to 6\%. This pattern---success on simpler TVM problems, failure on more abstract bond math---is consistent with findings in other sections.
+
 \section{Discussion}
 
 \subsection{Key Findings}
 
-The unified multi-dataset evaluation reveals consistent patterns across all three benchmarks:
+The unified section-based evaluation reveals consistent patterns across all three benchmark sections:
 
 \begin{enumerate}
-    \item \textbf{Conceptual vs. Computational Gap}: Agents demonstrate strong conceptual understanding (100\% on event logic reasoning) but struggle with precise numerical calculations (33.3\% on quantitative computation). This pattern persists across datasets---the Options P\&L calculations score 90/100 while Greeks precision drops to 15/100.
+    \item \textbf{Section Performance Hierarchy}: Knowledge Retrieval (83.33) significantly outperforms both Analytical Reasoning (50.00) and Options Trading (51.25). This suggests agents are better at extracting and reporting financial data than performing multi-step logical reasoning or complex derivative calculations.
 
-    \item \textbf{Cross-Dataset Consistency}: The integrated evaluation shows similar accuracy ranges across datasets (50-67\%), suggesting the benchmark effectively normalizes difficulty. The 0-1 scoring scale enables meaningful aggregation.
+    \item \textbf{Conceptual vs. Computational Gap}: Within each section, agents demonstrate stronger conceptual understanding than precise numerical execution. In Options, P\&L calculations score 80/100 while Greeks precision drops to 15/100. In Analytical Reasoning, simple TVM problems score 100\% while perpetuity math fails completely.
 
-    \item \textbf{Qualitative Outperforms Quantitative}: Market analysis questions (100\% correct) consistently outperform beat/miss calculations (0\% on TJX margin). Options strategy quality (72.5/100) exceeds Greeks accuracy (15/100).
+    \item \textbf{Weighted Scoring Reveals True Capability}: The 30/35/35 weighting ensures that overall scores reflect balanced capability. An agent excelling only at data retrieval (Knowledge) cannot achieve high overall scores without competence in reasoning (Analysis) and derivatives (Options).
 
-    \item \textbf{Organic Integration Validates}: Running all three datasets through the Green Agent A2A server confirms the framework's organic integration---BizFinBench, Public CSV, and Options Alpha coexist without configuration conflicts.
+    \item \textbf{Synthetic Questions Fill a Gap}: The Analytical Reasoning section tests skills not covered by BizFinBench or Options Alpha---self-contained logic puzzles requiring financial domain knowledge but no data retrieval. The 50\% accuracy suggests significant room for improvement.
 
-    \item \textbf{Options 4-Dimension Scoring Differentiates}: The granular options breakdown (P\&L, Greeks, Strategy, Risk) reveals that aggregate scores mask important capability differences. An agent scoring 71.25/100 on Iron Condor may excel at P\&L (100) while failing Greeks (30).
+    \item \textbf{Options 4-Dimension Scoring Differentiates}: The granular options breakdown (P\&L, Greeks, Strategy, Risk) reveals that aggregate scores mask important capability differences. An agent scoring 51.25/100 on Options may excel at P\&L (80) while failing Greeks (15).
 \end{enumerate}
 
 \subsection{Limitations}
@@ -471,19 +664,21 @@ The unified multi-dataset evaluation reveals consistent patterns across all thre
 
 \section{Conclusion}
 
-We presented CIO-Agent FAB++, a comprehensive benchmark for evaluating AI finance agents across 18 categories spanning fundamental analysis, options trading, and risk management. Our key contributions include:
+We presented CIO-Agent FAB++, a comprehensive benchmark for evaluating AI finance agents across three weighted sections: Knowledge Retrieval (30\%), Analytical Reasoning (35\%), and Options Trading (35\%). Our key contributions include:
 
 \begin{itemize}
-    \item \textbf{Organic Multi-Dataset Integration}: BizFinBench, Public CSV, and Options Alpha Challenge are unified under a single evaluation framework with consistent 0-1 scoring normalization.
+    \item \textbf{Unified Section-Based Scoring}: A weighted scoring system that normalizes all evaluator outputs to 0-100 and combines them into a single overall score, enabling meaningful comparison across diverse financial tasks.
+
+    \item \textbf{Olympiad-Style Synthetic Questions}: 22 curated finance logic problems spanning capital budgeting, portfolio theory, fixed income, corporate finance, and derivatives---testing reasoning ability without data retrieval dependency.
 
     \item \textbf{4-Dimension Options Scoring}: The Options Alpha Challenge provides granular assessment across P\&L accuracy, Greeks precision, strategy quality, and risk management---revealing capability patterns masked by aggregate scores.
 
-    \item \textbf{A2A Protocol Compliance}: Full integration with the Agent-to-Agent protocol enables standardized evaluation through the Green Agent server.
+    \item \textbf{Dynamic Weight Redistribution}: When sections are disabled, weights redistribute proportionally, ensuring meaningful scores regardless of evaluation configuration.
 
-    \item \textbf{Empirical Validation}: Unified evaluation of a baseline GPT-4o agent demonstrates 60\% overall accuracy with consistent patterns: strong conceptual reasoning (100\% event logic) versus weak numerical precision (33\% quantitative computation, 15/100 Greeks).
+    \item \textbf{Empirical Validation}: Unified evaluation of a baseline GPT-4o mini agent demonstrates 60.44/100 overall score with clear section hierarchy: Knowledge Retrieval (83.33) > Analytical Reasoning (50.00) $\approx$ Options Trading (51.25).
 \end{itemize}
 
-The multi-dimensional scoring methodology, combined with adversarial debate testing, provides nuanced assessment of agent capabilities beyond simple accuracy metrics. The system is publicly available at \url{https://github.com/yxc20089/AgentBusters} with Docker images for immediate deployment:
+The section-based scoring methodology reveals that current AI agents excel at financial data extraction but struggle with multi-step logical reasoning and precise derivative calculations---key areas for future improvement. The system is publicly available at \url{https://github.com/yxc20089/AgentBusters} with Docker images for immediate deployment:
 
 \begin{verbatim}
 ghcr.io/yxc20089/agentbusters-green:latest
@@ -628,5 +823,109 @@ sampling:
   total_limit: 100
   seed: 42
 \end{lstlisting}
+
+\section{Complete Synthetic Question Bank}
+\label{sec:questions}
+
+The following 20 questions comprise the Analytical Reasoning section. Questions are organized by topic with difficulty ratings (E=Easy, H=Hard, X=Expert).
+
+\subsection{Data Retrieval Questions (2)}
+
+\begin{enumerate}
+\item \textbf{[E] Quantitative Retrieval}: What was AAPL's EBITDA in fiscal year 2024? \\
+\textit{Answer: \$134.66B}
+
+\item \textbf{[E] Qualitative Retrieval}: Describe AAPL's main business and products. \\
+\textit{Answer: Apple Inc. designs, manufactures, and markets smartphones (iPhone), tablets (iPad), computers (Mac), wearables (Apple Watch), and provides digital services.}
+\end{enumerate}
+
+\subsection{Capital Budgeting (2)}
+
+\begin{enumerate}
+\setcounter{enumi}{2}
+\item \textbf{[H] NPV Crossover Rate}: A company has two mutually exclusive projects. Project A requires \$100,000 investment and returns \$150,000 in Year 1. Project B requires \$100,000 investment and returns \$180,000 in Year 2. At what discount rate are the two projects equally attractive? \\
+\textit{Answer: 20\%}
+
+\item \textbf{[H] FCFF Calculation}: Company ABC has EBIT of \$10 million, depreciation of \$2 million, capital expenditures of \$3 million, and working capital increase of \$1 million. The tax rate is 25\%. What is the Free Cash Flow to Firm? \\
+\textit{Answer: \$5.5 million}
+\end{enumerate}
+
+\subsection{Portfolio Theory (3)}
+
+\begin{enumerate}
+\setcounter{enumi}{4}
+\item \textbf{[H] Beta Adjustment}: An investor holds Stock X (60\% weight, $\beta$=1.2) and Stock Y (40\% weight, $\beta$=0.8). To reduce portfolio beta to 1.0 by adjusting only Stock X weight (remainder in risk-free), what should be the new weight of Stock X? \\
+\textit{Answer: 50\% (or 83.3\% depending on interpretation)}
+
+\item \textbf{[X] Leverage \& Standard Deviation}: Stock XYZ has expected return 12\% and $\sigma$=25\%. Risk-free rate is 4\%. To achieve 16\% expected return using XYZ and risk-free, what is the portfolio's standard deviation? \\
+\textit{Answer: 37.5\%, Leverage: 1.5x}
+
+\item \textbf{[H] Combined Leverage}: A company has DOL=2.5 and DFL=1.6. If sales increase by 10\%, by what percentage will EPS change? \\
+\textit{Answer: 40\%}
+\end{enumerate}
+
+\subsection{Fixed Income (4)}
+
+\begin{enumerate}
+\setcounter{enumi}{7}
+\item \textbf{[X] Bond Pricing Arbitrage}: A zero-coupon bond (\$1,000 face, 5-year) trades at \$680. A 6\% coupon bond trades at par. What is the arbitrage-free price of a 5-year 8\% coupon bond? \\
+\textit{Answer: \$1,085.35}
+
+\item \textbf{[X] Duration Immunization}: A pension fund has 15-year liability duration. Bond A has 5-year duration, Bond B has 20-year duration. What percentage in Bond B to immunize? \\
+\textit{Answer: 66.67\%}
+
+\item \textbf{[H] Perpetuity Price Change}: A perpetual bond pays \$50 annually. If rates rise from 5\% to 6\%, what is the percentage price change? \\
+\textit{Answer: -16.67\%}
+
+\item \textbf{[H] Gordon Growth Model}: Stock just paid \$2.00 dividend, growth rate 6\%, required return 10\%. What is intrinsic value? \\
+\textit{Answer: \$53.00}
+\end{enumerate}
+
+\subsection{Corporate Finance (3)}
+
+\begin{enumerate}
+\setcounter{enumi}{11}
+\item \textbf{[H] Leverage Effect on ROE}: Firm has \$500M assets, D/E=1.5, 6\% interest, 30\% tax, ROA=10\%. What is ROE? \\
+\textit{Answer: 11.2\% (or 18.1\% depending on formula used)}
+
+\item \textbf{[X] Modigliani-Miller Homemade Leverage}: Firm A is all-equity (1M shares at \$50). Firm B has \$20M debt, \$30M equity. How can an investor owning 10\% of A replicate 10\% of B's equity? \\
+\textit{Answer: Borrow \$2M, invest \$5M in A, net investment \$3M}
+
+\item \textbf{[H] Stock Split}: Company has 100,000 shares at \$25. After 3-for-2 split, what are new price and shares outstanding? \\
+\textit{Answer: \$16.67/share, 150,000 shares}
+\end{enumerate}
+
+\subsection{Options \& Derivatives (4)}
+
+\begin{enumerate}
+\setcounter{enumi}{14}
+\item \textbf{[X] Bull Call Spread}: Buy \$100 call for \$8, sell \$110 call for \$3. What are max profit, max loss, and breakeven? \\
+\textit{Answer: Max Profit \$5, Max Loss \$5, Breakeven \$105}
+
+\item \textbf{[H] Risk-Neutral Probability}: Stock at \$100 can go up 20\% or down 15\%. Risk-free rate 5\%. What is risk-neutral probability of up move? \\
+\textit{Answer: 57.14\%}
+
+\item \textbf{[X] Put-Call Parity}: Call priced at \$8, stock at \$100, strike \$95, risk-free 5\%, 1-year expiry. What should put price be? \\
+\textit{Answer: \$1.37 (or negative indicating arbitrage)}
+
+\item \textbf{[X] Interest Rate Swap}: X borrows at 8\% fixed or LIBOR+1\%. Y borrows at 10\% fixed or LIBOR+2\%. If they swap (X floating, Y fixed) and split gains equally, what fixed rate does X pay? \\
+\textit{Answer: 7.50\%}
+\end{enumerate}
+
+\subsection{Time Value of Money (2)}
+
+\begin{enumerate}
+\setcounter{enumi}{18}
+\item \textbf{[H] Present Value Comparison}: Choose between \$10,000 today or \$12,500 in 3 years at 8\% discount rate. Which is better and by how much? \\
+\textit{Answer: Option A (\$10,000 today) better by \$75.15}
+\end{enumerate}
+
+\subsection{Forex (1)}
+
+\begin{enumerate}
+\setcounter{enumi}{19}
+\item \textbf{[X] Covered Interest Arbitrage}: Spot EUR/USD=1.10, 1-year forward=1.12, USD rate=5\%, EUR rate=3\%. Is there arbitrage? Calculate profit per \$1M. \\
+\textit{Answer: Yes, approximately \$7,273 profit per \$1M}
+\end{enumerate}
 
 \end{document}

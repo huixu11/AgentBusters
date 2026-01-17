@@ -6,9 +6,12 @@ Based on the official green-agent-template from RDI-Foundation.
 """
 
 import json
+import logging
 from uuid import uuid4
 
 import httpx
+
+logger = logging.getLogger(__name__)
 from a2a.client import (
     A2ACardResolver,
     ClientConfig,
@@ -109,19 +112,40 @@ async def send_message(
 class Messenger:
     """
     A2A Messenger for communicating with Purple Agents.
-    
+
     Maintains conversation context across multiple message exchanges.
+    Caches A2A clients to avoid repeated agent card fetches.
     """
-    
-    def __init__(self):
+
+    def __init__(self, timeout: int = DEFAULT_TIMEOUT):
         self._context_ids = {}
+        self._clients = {}  # Cache A2A clients per URL
+        self._timeout = timeout
+        self._httpx_client = None
+
+    async def _get_httpx_client(self) -> httpx.AsyncClient:
+        """Get or create the shared httpx client."""
+        if self._httpx_client is None:
+            self._httpx_client = httpx.AsyncClient(timeout=self._timeout)
+        return self._httpx_client
+
+    async def _get_a2a_client(self, url: str):
+        """Get A2A client for URL, creating and caching if needed."""
+        if url not in self._clients:
+            httpx_client = await self._get_httpx_client()
+            resolver = A2ACardResolver(httpx_client=httpx_client, base_url=url)
+            agent_card = await resolver.get_agent_card()
+            config = ClientConfig(httpx_client=httpx_client, streaming=False)
+            factory = ClientFactory(config)
+            self._clients[url] = factory.create(agent_card)
+        return self._clients[url]
 
     async def talk_to_agent(
         self,
         message: str,
         url: str,
         new_conversation: bool = False,
-        timeout: int = DEFAULT_TIMEOUT,
+        timeout: int | None = None,
     ) -> str:
         """
         Send a message to a Purple Agent and receive their response.
@@ -130,22 +154,61 @@ class Messenger:
             message: The message to send to the agent
             url: The agent's URL endpoint
             new_conversation: If True, start fresh conversation; if False, continue existing
-            timeout: Timeout in seconds for the request (default: 300)
+            timeout: Timeout in seconds for the request (default: uses instance timeout)
 
         Returns:
             str: The agent's response message
         """
-        outputs = await send_message(
-            message=message,
-            base_url=url,
-            context_id=None if new_conversation else self._context_ids.get(url, None),
-            timeout=timeout,
-        )
+        # Log the outgoing question
+        msg_preview = message[:200] + "..." if len(message) > 200 else message
+        logger.info(f"[QUESTION] Sending to {url}: {msg_preview}")
+
+        client = await self._get_a2a_client(url)
+
+        context_id = None if new_conversation else self._context_ids.get(url, None)
+        outbound_msg = create_message(text=message, context_id=context_id)
+
+        last_event = None
+        outputs = {"response": "", "context_id": None}
+
+        async for event in client.send_message(outbound_msg):
+            last_event = event
+
+        match last_event:
+            case Message() as msg:
+                outputs["context_id"] = msg.context_id
+                outputs["response"] += merge_parts(msg.parts)
+
+            case (task, update):
+                outputs["context_id"] = task.context_id
+                outputs["status"] = task.status.state.value
+                msg = task.status.message
+                if msg:
+                    outputs["response"] += merge_parts(msg.parts)
+                if task.artifacts:
+                    for artifact in task.artifacts:
+                        outputs["response"] += merge_parts(artifact.parts)
+
+            case _:
+                pass
+
         if outputs.get("status", "completed") != "completed":
             raise RuntimeError(f"{url} responded with: {outputs}")
         self._context_ids[url] = outputs.get("context_id", None)
+
+        # Log the response
+        resp_preview = outputs["response"][:200] + "..." if len(outputs["response"]) > 200 else outputs["response"]
+        logger.info(f"[RESPONSE] From {url}: {resp_preview}")
+
         return outputs["response"]
 
+    async def close(self):
+        """Close the httpx client."""
+        if self._httpx_client is not None:
+            await self._httpx_client.aclose()
+            self._httpx_client = None
+
     def reset(self):
-        """Reset all conversation contexts."""
+        """Reset all conversation contexts and client cache."""
         self._context_ids = {}
+        self._clients = {}

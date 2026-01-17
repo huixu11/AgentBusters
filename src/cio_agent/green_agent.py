@@ -13,9 +13,10 @@ Supported modes:
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Optional, List, Union
-from pydantic import BaseModel, HttpUrl, ValidationError
+from pydantic import BaseModel
 from a2a.server.tasks import TaskUpdater
 from a2a.types import Message, TaskState, Part, TextPart, DataPart
 from a2a.utils import get_message_text, new_agent_text_message
@@ -31,23 +32,14 @@ from cio_agent.eval_config import (
     create_default_config,
 )
 from cio_agent.agentbeats_results import format_and_save_results
+from cio_agent.unified_scoring import UnifiedScorer, ScoreSection, DATASET_SECTION_MAP
 
 # Dataset providers (for legacy single-dataset mode)
-from cio_agent.datasets import BizFinBenchProvider, CsvFinanceDatasetProvider
+from cio_agent.data_providers import BizFinBenchProvider, CsvFinanceDatasetProvider
 
 # Dataset-specific evaluators
 from evaluators import BizFinBenchEvaluator, PublicCsvEvaluator, OptionsEvaluator
 from evaluators.llm_utils import build_llm_client, should_use_llm
-
-
-class EvalRequest(BaseModel):
-    """
-    Request format sent by the AgentBeats platform to green agents.
-    
-    The platform sends this JSON structure when initiating an assessment.
-    """
-    participants: dict[str, HttpUrl]  # role -> agent URL
-    config: dict[str, Any]
 
 
 class GreenAgent:
@@ -209,46 +201,74 @@ class GreenAgent:
             examples = self.dataset_provider.load()
             self._examples = examples[:limit] if limit else examples
 
+    async def run_eval(self, request: Any, updater: TaskUpdater) -> None:
+        """
+        Run evaluation with EvalRequest from agentbeats-client.
 
-    def validate_request(self, request: EvalRequest) -> tuple[bool, str]:
-        """Validate the assessment request."""
-        missing_roles = set(self.required_roles) - set(request.participants.keys())
-        if missing_roles:
-            return False, f"Missing roles: {missing_roles}"
+        Args:
+            request: EvalRequest with participants and config
+            updater: TaskUpdater for reporting progress and results
+        """
+        # Get participant URL from request (first participant)
+        participants = request.participants
+        if not participants:
+            raise ValueError("No participants provided in request")
 
-        missing_config_keys = set(self.required_config_keys) - set(request.config.keys())
-        if missing_config_keys:
-            return False, f"Missing config keys: {missing_config_keys}"
+        purple_agent_url = str(list(participants.values())[0])
+        config = request.config or {}
 
-        return True, "ok"
+        # Get config values with defaults
+        num_tasks = int(config.get("num_tasks", os.environ.get("EVAL_NUM_TASKS", "10")))
+        conduct_debate = config.get("conduct_debate", os.environ.get("EVAL_CONDUCT_DEBATE", "false"))
+        if isinstance(conduct_debate, str):
+            conduct_debate = conduct_debate.lower() == "true"
+
+        await self._run_evaluation(
+            purple_agent_url=purple_agent_url,
+            num_tasks=num_tasks,
+            conduct_debate=conduct_debate,
+            updater=updater,
+        )
 
     async def run(self, message: Message, updater: TaskUpdater) -> None:
         """
-        Run the FAB++ evaluation assessment.
+        Run the FAB++ evaluation assessment (legacy method).
 
         Args:
-            message: The incoming A2A message containing the EvalRequest
+            message: The incoming A2A message (plain text trigger)
             updater: TaskUpdater for reporting progress and results
         """
         input_text = get_message_text(message)
 
-        # Parse and validate the assessment request
-        try:
-            request: EvalRequest = EvalRequest.model_validate_json(input_text)
-            ok, msg = self.validate_request(request)
-            if not ok:
-                await updater.reject(new_agent_text_message(msg))
-                return
-        except ValidationError as e:
-            await updater.reject(new_agent_text_message(f"Invalid request: {e}"))
-            return
+        # Get configuration from environment variables (set by docker-compose/scenario)
+        purple_agent_url = os.environ.get("PURPLE_AGENT_URL", "http://purple_agent:9009")
+        num_tasks = int(os.environ.get("EVAL_NUM_TASKS", "10"))
+        conduct_debate = os.environ.get("EVAL_CONDUCT_DEBATE", "false").lower() == "true"
 
-        # Extract configuration
-        purple_agent_url = str(request.participants["purple_agent"])
-        ticker = request.config.get("ticker", "NVDA")
-        task_category = request.config.get("task_category", "beat_or_miss")
-        num_tasks = request.config.get("num_tasks", 1)
-        conduct_debate = request.config.get("conduct_debate", True)
+        await self._run_evaluation(
+            purple_agent_url=purple_agent_url,
+            num_tasks=num_tasks,
+            conduct_debate=conduct_debate,
+            updater=updater,
+        )
+
+    async def _run_evaluation(
+        self,
+        purple_agent_url: str,
+        num_tasks: int,
+        conduct_debate: bool,
+        updater: TaskUpdater,
+    ) -> None:
+        """
+        Internal method to run the actual evaluation.
+
+        Args:
+            purple_agent_url: URL of the purple agent to evaluate
+            num_tasks: Number of tasks to evaluate
+            conduct_debate: Whether to conduct adversarial debate
+            updater: TaskUpdater for reporting progress and results
+        """
+        ticker = os.environ.get("EVAL_TICKER", "NVDA")
 
         # Report starting
         await updater.update_status(
@@ -263,9 +283,9 @@ class GreenAgent:
                 new_agent_text_message("Generating evaluation tasks...")
             )
             
-            # Get simulation date from config or use current date
+            # Get simulation date from environment or use current date
             from datetime import datetime
-            simulation_date_str = request.config.get("simulation_date")
+            simulation_date_str = os.environ.get("SIMULATION_DATE")
             if simulation_date_str:
                 simulation_date = datetime.fromisoformat(simulation_date_str)
             else:
@@ -288,56 +308,66 @@ class GreenAgent:
                     conduct_debate=conduct_debate,
                     updater=updater,
                 )
-                
-                # Calculate aggregate metrics
-                valid_results = [r for r in all_results if "error" not in r]
-                avg_score = sum(r.get("score", 0) for r in valid_results) / len(valid_results) if valid_results else 0.0
-                accuracy = sum(1 for r in valid_results if r.get("is_correct", False)) / len(valid_results) if valid_results else 0.0
-                
-                # Group by dataset
-                by_dataset = {}
-                for r in valid_results:
-                    ds = r.get("dataset_type", "unknown")
-                    if ds not in by_dataset:
-                        by_dataset[ds] = {"scores": [], "correct": 0}
-                    by_dataset[ds]["scores"].append(r.get("score", 0))
-                    if r.get("is_correct", False):
-                        by_dataset[ds]["correct"] += 1
-                
-                # Create assessment result
-                assessment_result = {
-                    "benchmark": f"FAB++ {self.eval_config.name}",
-                    "version": self.eval_config.version,
-                    "purple_agent": purple_agent_url,
-                    "config_summary": summary,
-                    "num_evaluated": len(all_results),
-                    "num_successful": len(valid_results),
-                    "average_score": round(avg_score, 4),
-                    "accuracy": round(accuracy, 4),
-                    "by_dataset": {
-                        ds: {
-                            "count": len(data["scores"]),
-                            "mean_score": round(sum(data["scores"]) / len(data["scores"]), 4) if data["scores"] else 0,
-                            "accuracy": round(data["correct"] / len(data["scores"]), 4) if data["scores"] else 0,
+
+                # Use unified scoring system
+                scorer = UnifiedScorer()
+                normalized_results = []
+
+                for r in all_results:
+                    if "error" in r:
+                        continue
+
+                    dataset_type = r.get("dataset_type", "unknown")
+                    raw_score = r.get("score", 0.0)
+                    is_correct = r.get("is_correct", False)
+
+                    # Extract sub-scores for options
+                    sub_scores = {}
+                    if dataset_type == "options":
+                        sub_scores = {
+                            "pnl_accuracy": r.get("pnl_accuracy", 0),
+                            "greeks_accuracy": r.get("greeks_accuracy", 0),
+                            "strategy_quality": r.get("strategy_quality", 0),
+                            "risk_management": r.get("risk_management", 0),
                         }
-                        for ds, data in by_dataset.items()
-                    },
-                    "results": all_results,
-                }
+
+                    normalized = scorer.create_normalized_result(
+                        task_id=r.get("example_id", ""),
+                        dataset_type=dataset_type,
+                        raw_score=raw_score,
+                        is_correct=is_correct,
+                        feedback=r.get("feedback", ""),
+                        sub_scores=sub_scores,
+                    )
+                    if normalized:
+                        normalized_results.append(normalized)
+
+                # Compute unified result
+                unified_result = scorer.compute_unified_result(
+                    task_results=normalized_results,
+                    purple_agent_url=purple_agent_url,
+                    conduct_debate=conduct_debate,
+                )
+
+                # Convert to dict for serialization
+                assessment_result = unified_result.to_dict()
+
+                # Add config summary for compatibility
+                assessment_result["config_summary"] = summary
+                assessment_result["results"] = all_results  # Keep detailed results
 
                 # Save AgentBeats-compliant results
-                import os
-                participant_id = request.config.get("participant_id", os.environ.get("AGENTBEATS_PURPLE_AGENT_ID", ""))
-                participant_name = request.config.get("participant_name", "purple_agent")
-                scenario_id = request.config.get("scenario_id", os.environ.get("AGENTBEATS_SCENARIO_ID", ""))
-                green_agent_id = request.config.get("green_agent_id", os.environ.get("AGENTBEATS_GREEN_AGENT_ID", ""))
+                participant_id = os.environ.get("AGENTBEATS_PURPLE_AGENT_ID", "")
+                participant_name = os.environ.get("PARTICIPANT_NAME", "purple_agent")
+                scenario_id = os.environ.get("AGENTBEATS_SCENARIO_ID", "")
+                green_agent_id = os.environ.get("AGENTBEATS_GREEN_AGENT_ID", "")
 
                 try:
                     results_path, leaderboard_path = format_and_save_results(
                         participant_id=participant_id,
                         participant_name=participant_name,
                         evaluation_results=assessment_result,
-                        by_dataset=assessment_result.get("by_dataset"),
+                        by_dataset=None,  # Unified result handles this differently
                         scenario_id=scenario_id,
                         green_agent_id=green_agent_id,
                         results_dir="results",
@@ -351,9 +381,14 @@ class GreenAgent:
                     logger.warning("agentbeats_results_save_failed", error=str(e))
 
                 # Report results as artifact
+                overall = unified_result.overall_score
+                section_summary = "\n".join(
+                    f"  {name}: {ss.score:.1f}/100 (weight: {ss.weight:.0%}, {ss.task_count} tasks)"
+                    for name, ss in unified_result.section_scores.items()
+                )
                 await updater.add_artifact(
                     parts=[
-                        Part(root=TextPart(text=f"FAB++ Multi-Dataset Evaluation Complete\n\nAverage Score: {avg_score:.4f}\nAccuracy: {accuracy:.2%}\n\nBy Dataset:\n" + "\n".join(f"  {ds}: {len(data['scores'])} examples, {data['correct']} correct" for ds, data in by_dataset.items()))),
+                        Part(root=TextPart(text=f"FAB++ Unified Evaluation Complete\n\nOverall Score: {overall.score:.1f}/100 (Grade: {overall.grade})\n\nSection Scores:\n{section_summary}")),
                         Part(root=DataPart(data=assessment_result)),
                     ],
                     name="evaluation_result",
@@ -928,9 +963,8 @@ class GreenAgent:
                     options_evaluator = OptionsEvaluator(task=fab_task)
                     options_score = await options_evaluator.score(agent_response)
 
-                    # Normalize score from 0-100 to 0-1
-                    normalized_score = options_score.score / 100.0
-
+                    # Options scores are already on 0-100 scale - don't normalize here
+                    # The unified scorer handles 0-100 scale for options
                     result = {
                         "example_id": example.example_id,
                         "dataset_type": example.dataset_type,
@@ -938,8 +972,7 @@ class GreenAgent:
                         "question": example.question[:200] + "..." if len(example.question) > 200 else example.question,
                         "expected": example.answer[:100] + "..." if len(example.answer) > 100 else example.answer,
                         "predicted": response[:200] + "..." if len(response) > 200 else response,
-                        "score": normalized_score,
-                        "score_raw": options_score.score,
+                        "score": options_score.score,  # Keep as 0-100 scale
                         "is_correct": options_score.score >= 70,  # 70/100 threshold
                         "pnl_accuracy": options_score.pnl_accuracy,
                         "greeks_accuracy": options_score.greeks_accuracy,
@@ -947,7 +980,7 @@ class GreenAgent:
                         "risk_management": options_score.risk_management,
                         "feedback": options_score.feedback,
                     }
-                    eval_result = type('obj', (object,), {'score': normalized_score})()
+                    eval_result = type('obj', (object,), {'score': options_score.score})()
 
                 else:
                     # Generic handling for unknown types

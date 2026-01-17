@@ -18,8 +18,32 @@ COPY pyproject.toml .
 COPY src/ ./src/
 COPY scripts/ ./scripts/
 
-# Install the package
-RUN uv pip install --system -e ".[dev]"
+# Install only the dependencies needed for Purple Agent (no PyTorch/sentence-transformers)
+RUN uv pip install --system \
+    httpx>=0.25.0 \
+    pydantic>=2.12.5 \
+    openai>=1.0.0 \
+    anthropic>=0.18.0 \
+    tiktoken>=0.5.0 \
+    numpy>=1.24.0 \
+    pandas>=2.0.0 \
+    scipy>=1.11.0 \
+    yfinance>=0.2.30 \
+    edgartools>=2.0.0 \
+    asyncio>=3.4.0 \
+    aiohttp>=3.9.0 \
+    python-dotenv>=1.0.0 \
+    structlog>=23.2.0 \
+    rich>=13.0.0 \
+    typer>=0.9.0 \
+    "a2a-sdk[http-server]>=0.3.20" \
+    fastapi>=0.100.0 \
+    uvicorn>=0.38.0 \
+    sqlalchemy>=2.0.0 \
+    fastmcp>=2.0.0
+
+# Install the purple agent package
+RUN uv pip install --system -e . --no-deps
 
 # Expose A2A port
 EXPOSE 9110
@@ -30,5 +54,6 @@ ENV HOST=0.0.0.0
 ENV PORT=9110
 ENV PYTHONPATH=/app/src:/app
 
-# Run the Purple Agent server
-CMD ["purple-agent", "serve", "--host", "0.0.0.0", "--port", "9110"]
+# Run the Purple Agent server (ENTRYPOINT + CMD for docker-compose compatibility)
+ENTRYPOINT ["purple-agent", "serve"]
+CMD ["--host", "0.0.0.0", "--port", "9110"]
