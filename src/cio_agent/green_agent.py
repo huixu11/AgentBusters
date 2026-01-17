@@ -68,6 +68,19 @@ class GreenAgent:
     # Required config keys (optional ones will have defaults)
     required_config_keys: list[str] = []
 
+    def validate_request(self, request: "EvalRequest") -> tuple[bool, str]:
+        """Validate required roles and config keys for an evaluation request."""
+        missing_roles = [role for role in self.required_roles if role not in request.participants]
+        if missing_roles:
+            return False, f"Missing roles: {', '.join(missing_roles)}"
+
+        missing_keys = [key for key in self.required_config_keys if key not in request.config]
+        if missing_keys:
+            return False, f"Missing config keys: {', '.join(missing_keys)}"
+
+        return True, "ok"
+
+
     def __init__(
         self,
         eval_config: Optional[Union[EvaluationConfig, str, Path]] = None,
@@ -829,6 +842,13 @@ class GreenAgent:
                 })
         
         return all_results
+
+
+class EvalRequest(BaseModel):
+    """Evaluation request payload."""
+
+    participants: dict[str, str]
+    config: dict[str, Any] = {}
 
     async def _evaluate_with_config(
         self,
