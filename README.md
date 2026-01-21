@@ -85,6 +85,7 @@ All section scores are normalized to 0-100 scale. Example: Knowledge (83.33) + A
    - Corporate finance (FCFF, M&M)
    - Options & derivatives (put-call parity, swaps)
 4. **Options Alpha** (Options): Greeks analysis, strategy construction, P&L analysis
+5. **Crypto Trading Scenarios** (Optional): Multi-round trading evaluation on market states
 
 ### Key Features
 
@@ -93,6 +94,14 @@ All section scores are normalized to 0-100 scale. Example: Knowledge (83.33) + A
 - **Options Alpha Challenge**: Black-Scholes pricing, Greeks analysis, multi-leg strategies
 - **Adversarial Debate**: Optional counter-argument generation to test conviction
 - **Dynamic Weight Redistribution**: When sections are disabled, weights redistribute proportionally
+
+## Crypto Trading Benchmark (Optional Track)
+
+The repo includes an optional crypto trading benchmark that evaluates
+multi-round trading decisions on historical scenarios (baseline, noisy,
+adversarial, meta-consistency). Use `config/eval_crypto.yaml` to run it
+and see `docs/CRYPTO_BENCHMARK.md` for data format and integration
+details.
 
 ### Architecture
 

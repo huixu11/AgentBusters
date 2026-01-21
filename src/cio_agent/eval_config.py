@@ -2,12 +2,13 @@
 Evaluation configuration for Green Agent.
 
 Supports multi-dataset evaluation with configurable:
-- Multiple datasets (BizFinBench, public.csv, etc.)
+- Multiple datasets (BizFinBench, public.csv, options, crypto scenarios)
 - Task type filtering
 - Language filtering
 - Shuffle and sampling strategies
 """
 
+import os
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +17,11 @@ from typing import Any, Dict, List, Literal, Optional, Union
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+from cio_agent.crypto_benchmark import (
+    CryptoEvaluationConfig,
+    discover_crypto_scenarios,
+    prepare_crypto_scenarios,
+)
 
 class BizFinBenchDatasetConfig(BaseModel):
     """Configuration for BizFinBench dataset (fetched from HuggingFace)."""
@@ -119,8 +125,150 @@ class OptionsDatasetConfig(BaseModel):
     )
 
 
+# Crypto trading benchmark dataset
+class CryptoDatasetConfig(BaseModel):
+    """Configuration for crypto trading benchmark scenarios."""
+    type: Literal["crypto"] = "crypto"
+    path: str = Field(
+        default="data/crypto/scenarios",
+        description="Path to crypto scenarios directory or JSON file"
+    )
+    remote_manifest: Optional[str] = Field(
+        default=None,
+        description="Optional URL or file path to a remote manifest JSON"
+    )
+    cache_dir: Optional[str] = Field(
+        default=None,
+        description="Cache directory for remote scenarios (defaults to path)"
+    )
+    cache_ttl_hours: int = Field(
+        default=24,
+        description="Cache TTL in hours for remote scenarios (0 disables expiration)"
+    )
+    download_on_missing: bool = Field(
+        default=True,
+        description="Download missing scenarios when using remote manifest"
+    )
+    scenarios: Optional[List[str]] = Field(
+        default=None,
+        description="Optional list of scenario names to include"
+    )
+    limit: Optional[int] = Field(
+        default=None,
+        description="Limit number of scenarios"
+    )
+    shuffle: bool = Field(
+        default=True,
+        description="Shuffle scenarios"
+    )
+    weight: float = Field(
+        default=1.0,
+        description="Sampling weight relative to other datasets"
+    )
+    max_steps: Optional[int] = Field(
+        default=None,
+        description="Max market states per scenario"
+    )
+    stride: int = Field(
+        default=1,
+        description="Downsample market states by taking every Nth bar"
+    )
+    evaluation: CryptoEvaluationConfig = Field(
+        default_factory=CryptoEvaluationConfig,
+        description="Evaluation settings for crypto benchmark"
+    )
+
+    # PostgreSQL direct query mode
+    pg_enabled: bool = Field(
+        default=False,
+        description="Enable PostgreSQL direct query mode instead of JSON files"
+    )
+    pg_dsn: Optional[str] = Field(
+        default=None,
+        description="PostgreSQL DSN connection string (overrides individual params)"
+    )
+    pg_host: str = Field(
+        default="localhost",
+        description="PostgreSQL host"
+    )
+    pg_port: int = Field(
+        default=5432,
+        description="PostgreSQL port"
+    )
+    pg_dbname: str = Field(
+        default="market_data",
+        description="PostgreSQL database name"
+    )
+    pg_user: str = Field(
+        default="postgres",
+        description="PostgreSQL username"
+    )
+    pg_password: Optional[str] = Field(
+        default=None,
+        description="PostgreSQL password"
+    )
+    pg_ohlcv_table: str = Field(
+        default="market_data.candles_1m",
+        description="PostgreSQL table for OHLCV data"
+    )
+    pg_funding_table: Optional[str] = Field(
+        default="market_data.funding_rates",
+        description="PostgreSQL table for funding rates (optional)"
+    )
+
+    # Hidden window anti-overfitting configuration
+    hidden_seed_config: Optional[str] = Field(
+        default=None,
+        description="Name of hidden seed config in ~/.agentbusters/hidden_seeds.yaml"
+    )
+    window_count: int = Field(
+        default=12,
+        description="Number of evaluation windows to generate"
+    )
+    window_min_bars: int = Field(
+        default=1440,
+        description="Minimum bars per window (1440 = 1 day at 1m timeframe)"
+    )
+    window_max_bars: int = Field(
+        default=10080,
+        description="Maximum bars per window (10080 = 7 days at 1m timeframe)"
+    )
+    symbols: List[str] = Field(
+        default_factory=lambda: ["BTCUSDT"],
+        description="Symbols to include in evaluation"
+    )
+    date_range_start: str = Field(
+        default="2020-01-01",
+        description="Start of date range for window selection"
+    )
+    date_range_end: str = Field(
+        default="2025-12-31",
+        description="End of date range for window selection"
+    )
+
+    @field_validator("stride")
+    @classmethod
+    def validate_stride(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("stride must be >= 1")
+        return value
+
+    @field_validator("cache_ttl_hours")
+    @classmethod
+    def validate_cache_ttl_hours(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("cache_ttl_hours must be >= 0")
+        return value
+
+
 # Union type for all dataset configs
-DatasetConfig = Union[BizFinBenchDatasetConfig, PublicCsvDatasetConfig, SyntheticDatasetConfig, OptionsDatasetConfig]
+DatasetConfig = Union[
+    BizFinBenchDatasetConfig,
+    PublicCsvDatasetConfig,
+    SyntheticDatasetConfig,
+    OptionsDatasetConfig,
+    CryptoDatasetConfig,
+]
 
 
 class SamplingConfig(BaseModel):
@@ -221,9 +369,16 @@ class ConfigurableDatasetLoader:
         if self._loaded:
             return self._examples
 
-        # Set random seed for reproducibility
-        if self.config.sampling.seed is not None:
-            random.seed(self.config.sampling.seed)
+        # Set random seed for reproducibility (env overrides config)
+        seed = self.config.sampling.seed
+        env_seed = os.environ.get("EVAL_SCENARIO_SEED")
+        if env_seed is not None:
+            try:
+                seed = int(env_seed)
+            except ValueError:
+                pass
+        if seed is not None:
+            random.seed(seed)
 
         all_examples = []
 
@@ -253,6 +408,8 @@ class ConfigurableDatasetLoader:
             return self._load_synthetic(config)
         elif config.type == "options":
             return self._load_options(config)
+        elif config.type == "crypto":
+            return self._load_crypto(config)
         else:
             raise ValueError(f"Unknown dataset type: {config.type}")
 
@@ -381,6 +538,49 @@ class ConfigurableDatasetLoader:
                     "source": "options",
                     "rubric": getattr(ex, 'rubric', None),
                     **ex.metadata,
+                },
+            ))
+
+        return examples
+
+    def _load_crypto(self, config: "CryptoDatasetConfig") -> List[LoadedExample]:
+        """Load crypto trading scenarios."""
+        scenario_root = prepare_crypto_scenarios(
+            path=Path(config.path),
+            remote_manifest=config.remote_manifest,
+            scenarios=config.scenarios,
+            cache_dir=Path(config.cache_dir) if config.cache_dir else None,
+            cache_ttl_hours=config.cache_ttl_hours,
+            download_on_missing=config.download_on_missing,
+        )
+
+        scenario_indices = discover_crypto_scenarios(
+            path=scenario_root,
+            scenarios=config.scenarios,
+            limit=config.limit,
+            shuffle=config.shuffle,
+        )
+
+        examples = []
+        for scenario in scenario_indices:
+            question = f"Crypto trading scenario: {scenario.name}"
+            if scenario.description:
+                question = f"{question} - {scenario.description}"
+
+            examples.append(LoadedExample(
+                example_id=scenario.scenario_id,
+                question=question,
+                answer="",
+                dataset_type="crypto",
+                metadata={
+                    "scenario_id": scenario.scenario_id,
+                    "name": scenario.name,
+                    "description": scenario.description,
+                    "data_path": str(scenario.data_path),
+                    "metadata": scenario.metadata,
+                    "max_steps": config.max_steps,
+                    "stride": config.stride,
+                    "evaluation": config.evaluation.model_dump(),
                 },
             ))
 
