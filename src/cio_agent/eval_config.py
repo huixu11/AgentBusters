@@ -3,11 +3,13 @@ Evaluation configuration for Green Agent.
 
 Supports multi-dataset evaluation with configurable:
 - Multiple datasets (BizFinBench, public.csv, options, crypto scenarios)
+- Multiple datasets (BizFinBench, public.csv, options, crypto scenarios)
 - Task type filtering
 - Language filtering
 - Shuffle and sampling strategies
 """
 
+import os
 import os
 import random
 from dataclasses import dataclass, field
@@ -17,6 +19,11 @@ from typing import Any, Dict, List, Literal, Optional, Union
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+from cio_agent.crypto_benchmark import (
+    CryptoEvaluationConfig,
+    discover_crypto_scenarios,
+    prepare_crypto_scenarios,
+)
 from cio_agent.crypto_benchmark import (
     CryptoEvaluationConfig,
     discover_crypto_scenarios,
@@ -427,6 +434,16 @@ class ConfigurableDatasetLoader:
         if self._loaded:
             return self._examples
 
+        # Set random seed for reproducibility (env overrides config)
+        seed = self.config.sampling.seed
+        env_seed = os.environ.get("EVAL_SCENARIO_SEED")
+        if env_seed is not None:
+            try:
+                seed = int(env_seed)
+            except ValueError:
+                pass
+        if seed is not None:
+            random.seed(seed)
         # Set random seed for reproducibility (env overrides config)
         seed = self.config.sampling.seed
         env_seed = os.environ.get("EVAL_SCENARIO_SEED")
