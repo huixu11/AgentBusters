@@ -41,6 +41,7 @@ from cio_agent.data_providers import BizFinBenchProvider, CsvFinanceDatasetProvi
 
 # Dataset-specific evaluators
 from evaluators import BizFinBenchEvaluator, PublicCsvEvaluator, OptionsEvaluator
+from evaluators.gdpval_evaluator import GDPValEvaluator
 from evaluators.llm_utils import build_llm_client, should_use_llm
 
 
@@ -196,6 +197,12 @@ class GreenAgent:
                     llm_temperature=self.llm_temperature,
                 ),
                 "public_csv": PublicCsvEvaluator(
+                    use_llm=self.use_llm,
+                    llm_client=self.llm_client,
+                    llm_model=self.llm_model,
+                    llm_temperature=self.llm_temperature,
+                ),
+                "gdpval": GDPValEvaluator(
                     use_llm=self.use_llm,
                     llm_client=self.llm_client,
                     llm_model=self.llm_model,
@@ -784,6 +791,8 @@ class GreenAgent:
                         for key in ("llm_used", "llm_failure", "llm_raw_output"):
                             if key in eval_result.details:
                                 result[key] = eval_result.details.get(key)
+                    result["llm_used"] = eval_result.details.get("llm_used", False) if eval_result.details else False
+                    result["sub_scores"] = {}
                     
                 elif self.dataset_type == "public_csv":
                     # Build rubric from example
@@ -823,6 +832,8 @@ class GreenAgent:
                         ):
                             if key in eval_result.details:
                                 result[key] = eval_result.details.get(key)
+                    result["llm_used"] = eval_result.details.get("llm_used", False) if eval_result.details else False
+                    result["sub_scores"] = {}
                 else:
                     result = {
                         "example_id": example.example_id,
@@ -1000,7 +1011,43 @@ class GreenAgent:
                         "is_correct": is_correct,
                         "feedback": f"Extracted: {extracted}, Expected: {expected}",
                     }
+                    result["llm_used"] = False
+                    result["sub_scores"] = {}
                     eval_result = type('obj', (object,), {'score': result['score']})()
+
+                elif example.dataset_type == "gdpval":
+                    # GDPVal: Open-ended professional tasks (LLM-as-judge)
+                    eval_result = evaluator.evaluate(
+                        predicted=response,
+                        expected="",  # GDPVal has no ground truth
+                        task_prompt=example.question,
+                        occupation=example.task_type,  # task_type stores occupation
+                        sector=example.category,  # category stores sector
+                        reference_files=example.metadata.get("reference_files", []),
+                        question=example.question,
+                    )
+                    result = {
+                        "example_id": example.example_id,
+                        "dataset_type": example.dataset_type,
+                        "occupation": example.task_type,
+                        "sector": example.category,
+                        "question": example.question[:200] + "..." if len(example.question) > 200 else example.question,
+                        "predicted": predicted_text,
+                        "score": eval_result.score,
+                        "is_correct": eval_result.score >= 0.7,  # 70% threshold
+                        "feedback": eval_result.feedback,
+                        "has_reference_files": example.metadata.get("has_reference_files", False),
+                    }
+                    # Add detailed scores if available
+                    sub_scores: dict[str, float] = {}
+                    if eval_result.details:
+                        for key in ("completion", "accuracy", "format", "professionalism", "llm_used"):
+                            if key in eval_result.details:
+                                result[key] = eval_result.details[key]
+                                if key in ("completion", "accuracy", "format", "professionalism"):
+                                    sub_scores[key] = float(eval_result.details[key])
+                    result["llm_used"] = eval_result.details.get("llm_used", False) if eval_result.details else False
+                    result["sub_scores"] = sub_scores
 
                 elif example.dataset_type == "options":
                     # Options Alpha Challenge evaluation
@@ -1069,6 +1116,13 @@ class GreenAgent:
                         "risk_management": options_score.risk_management,
                         "feedback": options_score.feedback,
                     }
+                    result["llm_used"] = False
+                    result["sub_scores"] = {
+                        "pnl_accuracy": options_score.pnl_accuracy,
+                        "greeks_accuracy": options_score.greeks_accuracy,
+                        "strategy_quality": options_score.strategy_quality,
+                        "risk_management": options_score.risk_management,
+                    }
                     eval_result = type('obj', (object,), {'score': options_score.score})()
 
                 elif example.dataset_type == "crypto":
@@ -1097,6 +1151,8 @@ class GreenAgent:
                             "error": crypto_result["error"],
                             "score": 0.0,
                             "is_correct": False,
+                            "llm_used": False,
+                            "sub_scores": {},
                         }
                         eval_result = type('obj', (object,), {'score': 0.0})()
                     else:
@@ -1119,6 +1175,13 @@ class GreenAgent:
                                 "meta": crypto_result["meta"],
                             },
                             "events": crypto_result.get("events", []),
+                            "llm_used": False,
+                            "sub_scores": {
+                                "baseline": crypto_result["baseline"]["score"],
+                                "noisy": crypto_result["noisy"]["score"],
+                                "adversarial": crypto_result["adversarial"]["score"],
+                                "meta": crypto_result["meta"]["score"],
+                            },
                         }
                         result["is_correct"] = crypto_result["final_score"] >= 70
                         result["feedback"] = (
@@ -1137,6 +1200,8 @@ class GreenAgent:
                         "score": 0.0,  # No evaluator, no score
                         "is_correct": False,
                         "feedback": "No evaluator configured for this dataset type",
+                        "llm_used": False,
+                        "sub_scores": {},
                     }
                 
                 # Optional debate

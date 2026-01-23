@@ -22,6 +22,11 @@ from cio_agent.crypto_benchmark import (
     discover_crypto_scenarios,
     prepare_crypto_scenarios,
 )
+from cio_agent.crypto_benchmark import (
+    CryptoEvaluationConfig,
+    discover_crypto_scenarios,
+    prepare_crypto_scenarios,
+)
 
 class BizFinBenchDatasetConfig(BaseModel):
     """Configuration for BizFinBench dataset (fetched from HuggingFace)."""
@@ -261,6 +266,43 @@ class CryptoDatasetConfig(BaseModel):
         return value
 
 
+class GDPValDatasetConfig(BaseModel):
+    """Configuration for OpenAI GDPVal dataset (fetched from HuggingFace)."""
+    type: Literal["gdpval"] = "gdpval"
+    hf_dataset: str = Field(
+        default="openai/gdpval",
+        description="HuggingFace dataset identifier"
+    )
+    sectors: Optional[List[str]] = Field(
+        default=None,
+        description="Filter by sectors. None means all. Options: Professional/Scientific/Technical Services, Government, Information, Manufacturing, etc."
+    )
+    occupations: Optional[List[str]] = Field(
+        default=None,
+        description="Filter by occupations. None means all. 44 occupations available."
+    )
+    limit: Optional[int] = Field(
+        default=None,
+        description="Limit number of tasks"
+    )
+    shuffle: bool = Field(
+        default=True,
+        description="Shuffle tasks"
+    )
+    weight: float = Field(
+        default=1.0,
+        description="Sampling weight relative to other datasets"
+    )
+    include_reference_files: bool = Field(
+        default=True,
+        description="Include reference file URLs in metadata for multi-modal evaluation"
+    )
+    cache_dir: Optional[str] = Field(
+        default=None,
+        description="Cache directory for HuggingFace datasets"
+    )
+
+
 # Union type for all dataset configs
 DatasetConfig = Union[
     BizFinBenchDatasetConfig,
@@ -268,6 +310,7 @@ DatasetConfig = Union[
     SyntheticDatasetConfig,
     OptionsDatasetConfig,
     CryptoDatasetConfig,
+    GDPValDatasetConfig,
 ]
 
 
@@ -399,6 +442,16 @@ class ConfigurableDatasetLoader:
                 pass
         if seed is not None:
             random.seed(seed)
+        # Set random seed for reproducibility (env overrides config)
+        seed = self.config.sampling.seed
+        env_seed = os.environ.get("EVAL_SCENARIO_SEED")
+        if env_seed is not None:
+            try:
+                seed = int(env_seed)
+            except ValueError:
+                pass
+        if seed is not None:
+            random.seed(seed)
 
         all_examples = []
 
@@ -430,6 +483,8 @@ class ConfigurableDatasetLoader:
             return self._load_options(config)
         elif config.type == "crypto":
             return self._load_crypto(config)
+        elif config.type == "gdpval":
+            return self._load_gdpval(config)
         else:
             raise ValueError(f"Unknown dataset type: {config.type}")
 
@@ -561,6 +616,80 @@ class ConfigurableDatasetLoader:
                 },
             ))
 
+        return examples
+
+    def _load_gdpval(self, config: "GDPValDatasetConfig") -> List[LoadedExample]:
+        """Load GDPVal tasks from HuggingFace."""
+        try:
+            from datasets import load_dataset
+        except (ImportError, ModuleNotFoundError):
+            raise ImportError(
+                "The 'datasets' library is required for GDPVal. "
+                "Install it with: pip install datasets"
+            )
+
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Load dataset from HuggingFace
+        logger.info(f"Loading GDPVal dataset from {config.hf_dataset}")
+        dataset = load_dataset(
+            config.hf_dataset,
+            cache_dir=config.cache_dir,
+            trust_remote_code=True,
+        )
+
+        # GDPVal has a single 'train' split with 220 tasks
+        data = dataset["train"]
+
+        examples = []
+        for row in data:
+            task_id = row["task_id"]
+            sector = row.get("sector", "")
+            occupation = row.get("occupation", "")
+            prompt = row.get("prompt", "")
+
+            # Apply sector filter
+            if config.sectors and sector not in config.sectors:
+                continue
+
+            # Apply occupation filter
+            if config.occupations and occupation not in config.occupations:
+                continue
+
+            # Build metadata
+            metadata = {
+                "source": "gdpval",
+                "sector": sector,
+                "occupation": occupation,
+            }
+
+            # Include reference files if enabled
+            if config.include_reference_files:
+                reference_files = row.get("reference_files", [])
+                reference_urls = row.get("reference_file_urls", [])
+                reference_hf_uris = row.get("reference_file_hf_uris", [])
+
+                metadata["reference_files"] = reference_files
+                metadata["reference_file_urls"] = reference_urls
+                metadata["reference_file_hf_uris"] = reference_hf_uris
+                metadata["has_reference_files"] = len(reference_files) > 0
+
+            examples.append(LoadedExample(
+                example_id=task_id,
+                question=prompt,
+                answer="",  # GDPVal is open-ended, no ground truth answer
+                dataset_type="gdpval",
+                category=sector,
+                task_type=occupation,
+                metadata=metadata,
+            ))
+
+        # Apply limit
+        if config.limit:
+            examples = examples[:config.limit]
+
+        logger.info(f"Loaded {len(examples)} GDPVal tasks")
         return examples
 
     def _load_crypto(self, config: "CryptoDatasetConfig") -> List[LoadedExample]:

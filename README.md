@@ -12,6 +12,36 @@ A dynamic finance agent benchmark system for the [AgentBeats Competition](https:
 
 This codebase is designed to work with the [AgentBeats platform](https://agentbeats.dev). The Green Agent follows the official [green-agent-template](https://github.com/RDI-Foundation/green-agent-template).
 
+### Submission Readiness (Reproducibility & Transparency)
+
+- **Deterministic configs**: use fixed `sampling.seed` in eval configs and avoid ad‑hoc overrides during runs.
+- **LLM‑as‑judge determinism**: set `llm_eval.temperature: 0.0` and pin `llm_eval.model` (e.g., `gpt-4o-mini`) in configs such as `config/eval_all.yaml` and `config/eval_gdpval.yaml`.
+- **Crypto reproducibility**: use anonymized hidden scenarios plus fixed seeds; for fully deterministic runs you can set `EVAL_SCENARIO_SEED`.
+- **Transparent evaluation logic**: scoring lives in `src/evaluators/` and `src/cio_agent/unified_scoring.py`; crypto scoring in `src/cio_agent/crypto_benchmark.py`.
+
+### End-to-End (AgentBeats) Flow
+
+1. Build & push Green/Purple images to GHCR.
+2. Register agents on AgentBeats and copy the agent IDs.
+3. Update the leaderboard `scenario.toml` (set `EVAL_CONFIG=config/eval_all.yaml` and agent IDs).
+4. Add secrets to the leaderboard repo (`OPENAI_API_KEY`, `EVAL_DATA_REPO`, `EVAL_DATA_PAT`, optional `HF_TOKEN`).
+5. Push `scenario.toml` → workflow runs → merge PR to publish results.
+
+### Resource Requirements
+
+- **CPU/RAM**: 4 vCPU / 16 GB RAM recommended for multi‑dataset runs.
+- **Storage**: local datasets + hidden crypto windows (size depends on your private repo).
+- **Network**: required for HuggingFace datasets (BizFinBench/GDPVal) and LLM APIs.
+- **LLM**: external API or local LLM; pin model + temperature for reproducibility.
+
+### Submission Checklist
+
+- [ ] `scenario.toml` has real AgentBeats IDs (no placeholders)
+- [ ] `config/eval_all.yaml` (or your target config) uses fixed seeds + `llm_eval.temperature: 0.0`
+- [ ] Hidden crypto data is private and only mounted into Green (not visible to Purple)
+- [ ] README + DEPLOYMENT docs match the exact run steps
+- [ ] End-to-end dry run completed from a clean clone
+
 ### Quick Start
 
 ```bash
@@ -24,7 +54,8 @@ source .venv/bin/activate        # Linux/Mac
 pip install -e ".[dev]"
 
 # Start Green Agent (A2A server)
-python src/cio_agent/a2a_server.py --host 0.0.0.0 --port 9109 --eval-config .\config\eval_config.yaml --store-predicted --predicted-max-chars 200
+# For all datasets: use config/eval_all.yaml
+python src/cio_agent/a2a_server.py --host 0.0.0.0 --port 9109 --eval-config .\config\eval_all.yaml --store-predicted --predicted-max-chars 200
 
 # Start Purple Agent
 purple-agent serve --host 0.0.0.0 --port 9110 --card-url http://127.0.0.1:9110
@@ -99,6 +130,7 @@ All section scores are normalized to 0-100 scale. Example: Knowledge (83.33) + A
    - Options & derivatives (put-call parity, swaps)
 4. **Options Alpha** (Options): Greeks analysis, strategy construction, P&L analysis
 5. **Crypto Trading Scenarios** (Optional): Multi-round trading evaluation on market states
+6. **GDPVal** (Optional): Open‑ended professional tasks scored by LLM‑as‑judge
 
 ### Key Features
 
@@ -442,10 +474,10 @@ curl -X POST http://localhost:9109/ \
 #   strategy: stratified  # Options: sequential, random, stratified, weighted
 #   total_limit: 100
 #   seed: 42
-# llm_eval:
-#   enabled: true
-#   model: gpt-4o-mini
-#   temperature: 0.0
+llm_eval:
+  enabled: true
+  model: gpt-4o-mini
+  temperature: 0.0
 
 
 # MCP helpers and CSV batch eval
@@ -471,7 +503,7 @@ python -m scripts.run_bizfin_eval \
 	--output /tmp/bizfin_summary.json --limit 10
 
 # List task types by language:
-python -c "from cio_agent.datasets import BizFinBenchProvider; print(BizFinBenchProvider.list_task_types_by_language())"
+python -c "from cio_agent.local_datasets import BizFinBenchProvider; print(BizFinBenchProvider.list_task_types_by_language())"
 
 # Dataset-specific evaluators (exact-match scoring by default, optional LLM grading):
 # BizFinBench: numerical matching (+/-1% tolerance), sequence matching, classification
@@ -509,7 +541,7 @@ Tip: Using hosted APIs instead of local vLLM? You can skip Terminal 1 and just c
 ```dotenv
 # OpenAI (skip Terminal 1)
 LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-your-key
+OPENAI_API_KEY=sk-REDACTED
 LLM_MODEL=gpt-4o
 # Do not set OPENAI_API_BASE or OPENAI_BASE_URL when using OpenAI's hosted API
 ```
@@ -517,7 +549,7 @@ LLM_MODEL=gpt-4o
 ```dotenv
 # Anthropic (skip Terminal 1)
 LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-your-key
+ANTHROPIC_API_KEY=sk-ant-REDACTED
 LLM_MODEL=claude-3.5-sonnet
 ```
 
@@ -652,14 +684,14 @@ LLM_MODEL=openai/gpt-oss-20b
 **For OpenAI API:**
 ```dotenv
 LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-your-key
+OPENAI_API_KEY=sk-REDACTED
 LLM_MODEL=gpt-4o
 ```
 
 **For Anthropic API:**
 ```dotenv
 LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-your-key
+ANTHROPIC_API_KEY=sk-ant-REDACTED
 LLM_MODEL=claude-3.5-sonnet
 ```
 
