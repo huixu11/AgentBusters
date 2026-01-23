@@ -3,7 +3,6 @@ Evaluation configuration for Green Agent.
 
 Supports multi-dataset evaluation with configurable:
 - Multiple datasets (BizFinBench, public.csv, options, crypto scenarios)
-- Multiple datasets (BizFinBench, public.csv, options, crypto scenarios)
 - Task type filtering
 - Language filtering
 - Shuffle and sampling strategies
