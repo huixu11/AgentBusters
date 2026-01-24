@@ -216,9 +216,11 @@ class TestBuildLLMClient:
 
     def test_build_llm_client_provider_parameter(self):
         # Without API keys, should return None but not raise
+        # This test verifies the function handles the provider parameter without crashing
         result = build_llm_client(provider="openai")
-        # Result depends on whether OPENAI_API_KEY is set
-        assert result is None or result is not None  # Just test it doesn't crash
+        # Without OPENAI_API_KEY set, should return None
+        if not os.getenv("OPENAI_API_KEY"):
+            assert result is None
 
     def test_build_llm_client_existing_passthrough(self):
         mock_client = object()
@@ -234,8 +236,9 @@ class TestBuildLLMClient:
         # Without API keys, should return None but use correct provider logic
         reset_evaluator_llm_config()
         result = build_llm_client_for_evaluator("macro")
-        # Just verify it doesn't crash and returns None (no API key)
-        assert result is None or result is not None
+        # Without API keys set, should return None
+        if not os.getenv("OPENAI_API_KEY") and not os.getenv("ANTHROPIC_API_KEY"):
+            assert result is None
 
 
 class TestEvaluatorIntegration:
