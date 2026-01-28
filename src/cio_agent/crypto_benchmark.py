@@ -8,6 +8,7 @@ import copy
 import hashlib
 import json
 import math
+import os
 import random
 import shutil
 import statistics
@@ -133,6 +134,39 @@ def _is_url(value: str) -> bool:
     return value.startswith("http://") or value.startswith("https://")
 
 
+def _get_github_auth_header() -> Optional[dict[str, str]]:
+    """Get GitHub authorization header from environment if available."""
+    pat = os.environ.get("EVAL_DATA_PAT")
+    if pat:
+        return {"Authorization": f"token {pat}"}
+    return None
+
+
+def _build_github_raw_url(repo: str, path: str, branch: str = "main") -> str:
+    """Build raw GitHub URL from repo and path.
+
+    Args:
+        repo: GitHub repo in format 'owner/repo'
+        path: Path within the repo
+        branch: Branch name (default: main)
+
+    Returns:
+        Raw GitHub URL for the file
+    """
+    return f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
+
+
+def _create_url_request(url: str) -> urllib.request.Request:
+    """Create a URL request with GitHub auth if applicable."""
+    request = urllib.request.Request(url)
+    if "github" in url.lower() or "githubusercontent" in url.lower():
+        auth_header = _get_github_auth_header()
+        if auth_header:
+            for key, value in auth_header.items():
+                request.add_header(key, value)
+    return request
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -168,7 +202,8 @@ def _load_manifest(
             except Exception:
                 pass
 
-        with urllib.request.urlopen(manifest_ref, timeout=60) as response:
+        request = _create_url_request(manifest_ref)
+        with urllib.request.urlopen(request, timeout=60) as response:
             manifest = json.loads(response.read().decode("utf-8"))
         if not isinstance(manifest, dict):
             raise ValueError("manifest must be a JSON object")
@@ -241,8 +276,10 @@ def _safe_extract_zip(zip_path: Path, dest_dir: Path) -> None:
 
 
 def _download_to_path(url: str, dest_path: Path) -> None:
+    """Download a file from URL to local path, with GitHub auth if available."""
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    with urllib.request.urlopen(url, timeout=120) as response:
+    request = _create_url_request(url)
+    with urllib.request.urlopen(request, timeout=120) as response:
         with dest_path.open("wb") as handle:
             shutil.copyfileobj(response, handle)
 

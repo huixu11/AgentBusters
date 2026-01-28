@@ -694,15 +694,28 @@ class ConfigurableDatasetLoader:
     def _load_crypto(self, config: "CryptoDatasetConfig") -> List[LoadedExample]:
         """Load crypto trading scenarios."""
         import hashlib
+        import os
 
         # Check if using PostgreSQL with hidden windows
         if config.pg_enabled and config.hidden_seed_config:
             return self._load_crypto_from_postgres(config)
 
+        # Auto-construct remote_manifest from EVAL_DATA_REPO if not explicitly set
+        remote_manifest = config.remote_manifest
+        if not remote_manifest:
+            eval_data_repo = os.environ.get("EVAL_DATA_REPO")
+            if eval_data_repo:
+                # Build GitHub raw URL for the crypto manifest
+                # Expected structure: {repo}/crypto/manifest.json
+                remote_manifest = (
+                    f"https://raw.githubusercontent.com/{eval_data_repo}/main/crypto/manifest.json"
+                )
+                logger.info(f"Using EVAL_DATA_REPO manifest: {remote_manifest}")
+
         # Fall back to JSON-based loading
         scenario_root = prepare_crypto_scenarios(
             path=Path(config.path),
-            remote_manifest=config.remote_manifest,
+            remote_manifest=remote_manifest,
             scenarios=config.scenarios,
             cache_dir=Path(config.cache_dir) if config.cache_dir else None,
             cache_ttl_hours=config.cache_ttl_hours,
