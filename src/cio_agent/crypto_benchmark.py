@@ -300,6 +300,11 @@ def prepare_crypto_scenarios(
     manifest, manifest_parent = _load_manifest(remote_manifest, cache_root, cache_ttl_hours)
     base_url = manifest.get("base_url") or manifest.get("base_uri")
 
+    # If no base_url in manifest but we have a remote URL, derive base_url from manifest URL
+    # e.g., https://.../crypto/eval_hidden/manifest.json → https://.../crypto/eval_hidden/
+    if not base_url and _is_url(remote_manifest):
+        base_url = remote_manifest.rsplit("/", 1)[0] + "/"
+
     scenario_filter = {s for s in scenarios} if scenarios else None
     for entry in _manifest_entries(manifest):
         scenario_id = entry.get("id") or entry.get("scenario_id") or entry.get("name")
@@ -310,8 +315,18 @@ def prepare_crypto_scenarios(
 
         artifact_meta = entry.get("artifact") if isinstance(entry.get("artifact"), dict) else {}
         ref = entry.get("url") or artifact_meta.get("url") or entry.get("artifact")
+
+        # If no explicit URL, assume scenario data is in a subdirectory named after the ID
+        # with market_data.json inside (common pattern for directory-based manifests)
         if not ref:
-            raise ValueError(f"manifest entry missing url for scenario {scenario_id}")
+            if base_url:
+                # Construct URL: {base_url}/{scenario_id}/market_data.json
+                ref = f"{scenario_id}/market_data.json"
+            elif manifest_parent:
+                # Local path: {manifest_parent}/{scenario_id}/market_data.json
+                ref = f"{scenario_id}/market_data.json"
+            else:
+                raise ValueError(f"manifest entry missing url for scenario {scenario_id}")
 
         resolved_ref = _resolve_ref(str(ref), base_url, manifest_parent)
         scenario_dir = cache_root / scenario_id
@@ -338,11 +353,25 @@ def prepare_crypto_scenarios(
             if actual_sha.lower() != str(expected_sha).lower():
                 raise RuntimeError(f"scenario {scenario_id} failed sha256 check")
 
-        if str(artifact_path).endswith(".zip"):
+        # Detect artifact format by extension or content
+        artifact_str = str(artifact_path)
+        is_zip = artifact_str.endswith(".zip")
+        is_json = artifact_str.endswith(".json")
+
+        # For downloaded files without proper extension, detect by content
+        if artifact_path.name == "artifact.download":
+            with artifact_path.open("rb") as f:
+                header = f.read(4)
+            if header[:2] == b"PK":  # ZIP magic bytes
+                is_zip = True
+            elif header[:1] in (b"{", b"["):  # JSON starts with { or [
+                is_json = True
+
+        if is_zip:
             _safe_extract_zip(artifact_path, scenario_dir)
             if artifact_path.name == "artifact.download":
                 artifact_path.unlink(missing_ok=True)
-        elif str(artifact_path).endswith(".json"):
+        elif is_json:
             if artifact_path != market_path:
                 shutil.copyfile(artifact_path, market_path)
             if artifact_path.name == "artifact.download":

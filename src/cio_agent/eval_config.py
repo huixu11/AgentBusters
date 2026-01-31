@@ -8,6 +8,7 @@ Supports multi-dataset evaluation with configurable:
 - Shuffle and sampling strategies
 """
 
+import logging
 import os
 import random
 from dataclasses import dataclass, field
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import yaml
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel, Field, field_validator
 
 from cio_agent.crypto_benchmark import (
@@ -706,9 +709,9 @@ class ConfigurableDatasetLoader:
             eval_data_repo = os.environ.get("EVAL_DATA_REPO")
             if eval_data_repo:
                 # Build GitHub raw URL for the crypto manifest
-                # Expected structure: {repo}/crypto/manifest.json
+                # Expected structure: {repo}/crypto/eval_hidden/manifest.json
                 remote_manifest = (
-                    f"https://raw.githubusercontent.com/{eval_data_repo}/main/crypto/manifest.json"
+                    f"https://raw.githubusercontent.com/{eval_data_repo}/main/crypto/eval_hidden/manifest.json"
                 )
                 logger.info(f"Using EVAL_DATA_REPO manifest: {remote_manifest}")
 
