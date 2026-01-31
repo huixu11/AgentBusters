@@ -490,6 +490,29 @@ TOOLS = [
             }
         }
     },
+    # FAB Benchmark Data Tool
+    {
+        "type": "function",
+        "function": {
+            "name": "search_fab_benchmark",
+            "description": "Search the FAB (Finance Agent Benchmark) dataset for specific financial data. This contains curated financial data including Netflix ARPU, AMD guidance, company metrics, and other benchmark data. Use this for questions about specific financial metrics, earnings guidance, ARPU trends, and similar benchmark data.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query to find relevant benchmark data (e.g., 'Netflix ARPU', 'AMD revenue guidance', 'TJX margin')"
+                    },
+                    "company": {
+                        "type": "string",
+                        "description": "Optional company name or ticker to filter results",
+                        "default": ""
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
 ]
 
 # Tool name to function mapping (will be set by executor)

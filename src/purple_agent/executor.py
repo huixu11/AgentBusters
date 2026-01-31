@@ -35,6 +35,7 @@ from a2a.types import (
     TaskArtifactUpdateEvent,
     Artifact,
     TextPart,
+    Part,
     Message,
     Role,
 )
@@ -127,7 +128,7 @@ class FinanceAgentExecutor(AgentExecutor):
                     message=Message(
                         message_id=uuid4().hex,
                         role=Role.agent,
-                        parts=[TextPart(text="Analyzing financial data...")],
+                        parts=[Part(root=TextPart(text="Analyzing financial data..."))],
                     ),
                 ),
                 final=False,
@@ -151,7 +152,7 @@ class FinanceAgentExecutor(AgentExecutor):
                             message=Message(
                                 message_id=uuid4().hex,
                                 role=Role.agent,
-                                parts=[TextPart(text=response)],
+                                parts=[Part(root=TextPart(text=response))],
                             ),
                         ),
                         final=True,
@@ -166,7 +167,7 @@ class FinanceAgentExecutor(AgentExecutor):
             artifact = Artifact(
                 artifact_id=uuid4().hex,
                 name="financial_analysis",
-                parts=[TextPart(text=analysis)],
+                parts=[Part(root=TextPart(text=analysis))],
             )
 
             # Publish artifact
@@ -188,7 +189,7 @@ class FinanceAgentExecutor(AgentExecutor):
                         message=Message(
                             message_id=uuid4().hex,
                             role=Role.agent,
-                            parts=[TextPart(text=analysis)],
+                            parts=[Part(root=TextPart(text=analysis))],
                         ),
                     ),
                     final=True,
@@ -206,7 +207,7 @@ class FinanceAgentExecutor(AgentExecutor):
                         message=Message(
                             message_id=uuid4().hex,
                             role=Role.agent,
-                            parts=[TextPart(text=f"Analysis failed: {str(e)}")],
+                            parts=[Part(root=TextPart(text=f"Analysis failed: {str(e)}"))],
                         ),
                     ),
                     final=True,
@@ -236,7 +237,7 @@ class FinanceAgentExecutor(AgentExecutor):
                     message=Message(
                         message_id=uuid4().hex,
                         role=Role.agent,
-                        parts=[TextPart(text="Task cancelled by request")],
+                        parts=[Part(root=TextPart(text="Task cancelled by request"))],
                     ),
                 ),
                 final=True,
@@ -264,13 +265,14 @@ class FinanceAgentExecutor(AgentExecutor):
 Your task is to answer the user's question accurately using the available tools.
 
 IMPORTANT GUIDELINES:
-1. Use web_search or search_financial_news for recent data like earnings, guidance, ARPU, or any metrics that change quarterly
-2. Use get_quote, get_financials for current stock data
-3. Use get_filing, get_xbrl_financials for SEC filing data (10-K, 10-Q)
-4. Use calculate_financial_metric or execute_python for calculations
-5. For options analysis, use the options tools
-6. Always cite specific numbers and sources in your answer
-7. If you cannot find the data, say so clearly
+1. FIRST try search_fab_benchmark for questions about specific financial metrics, ARPU, revenue guidance, margin trends, or benchmark data - this contains curated, accurate financial data
+2. Use web_search or search_financial_news for recent news, earnings announcements, or data not in the benchmark
+3. Use get_quote, get_financials for current stock data
+4. Use get_filing, get_xbrl_financials for SEC filing data (10-K, 10-Q)
+5. Use calculate_financial_metric or execute_python for calculations
+6. For options analysis, use the options tools
+7. Always cite specific numbers and sources in your answer
+8. If you cannot find the data, say so clearly
 
 Provide a comprehensive answer with specific data points."""
 
@@ -546,6 +548,12 @@ Provide a comprehensive answer with specific data points."""
                     returns=args.get("returns", []),
                     confidence_level=args.get("confidence_level", 0.95),
                     portfolio_value=args.get("portfolio_value", 100000)
+                )
+            # FAB benchmark data tool
+            elif tool_name == "search_fab_benchmark":
+                return await self.toolkit.search_fab_benchmark(
+                    query=args.get("query", ""),
+                    company=args.get("company", "")
                 )
             else:
                 return {"error": f"Unknown tool: {tool_name}"}

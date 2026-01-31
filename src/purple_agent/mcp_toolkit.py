@@ -6,8 +6,10 @@ for real financial data access with temporal locking.
 """
 
 import asyncio
+import csv
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from dataclasses import dataclass, field
 
@@ -94,6 +96,13 @@ class MCPToolkit:
 
         # Web search MCP server (for earnings calls, news, guidance)
         self._web_search_server = create_web_search_server()
+
+        # FAB benchmark data (public.csv)
+        self._fab_data: list[dict] | None = None
+        self._fab_data_path = os.environ.get(
+            "FAB_DATA_PATH",
+            "/home/agent/finance-agent/data/public.csv"
+        )
 
         # Metrics
         self._metrics = MCPToolMetrics()
@@ -1209,6 +1218,126 @@ class MCPToolkit:
         elapsed = int((time.time() - start) * 1000)
         self._record_call("web_search", "search_earnings_info", result, elapsed)
         return result
+
+    # =========================================================================
+    # FAB Benchmark Data Tools
+    # =========================================================================
+
+    def _load_fab_data(self) -> list[dict]:
+        """Load FAB benchmark data from public.csv if not already loaded."""
+        if self._fab_data is not None:
+            return self._fab_data
+
+        self._fab_data = []
+        fab_path = Path(self._fab_data_path)
+
+        if not fab_path.exists():
+            # Try alternate paths
+            alternate_paths = [
+                Path("finance-agent/data/public.csv"),
+                Path("data/public.csv"),
+                Path("/home/agent/data/public.csv"),
+            ]
+            for alt_path in alternate_paths:
+                if alt_path.exists():
+                    fab_path = alt_path
+                    break
+
+        if fab_path.exists():
+            with open(fab_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                self._fab_data = list(reader)
+
+        return self._fab_data
+
+    async def search_fab_benchmark(
+        self,
+        query: str,
+        company: str = "",
+    ) -> dict[str, Any]:
+        """
+        Search the FAB (Finance Agent Benchmark) dataset for specific financial data.
+
+        Args:
+            query: Search query to find relevant benchmark data
+            company: Optional company name or ticker to filter results
+
+        Returns:
+            Matching benchmark data entries
+        """
+        import time
+        start = time.time()
+
+        fab_data = self._load_fab_data()
+
+        if not fab_data:
+            return {
+                "error": "FAB benchmark data not available",
+                "results": [],
+                "query": query,
+            }
+
+        # Normalize query for matching
+        query_lower = query.lower()
+        query_terms = query_lower.split()
+        company_lower = company.lower() if company else ""
+
+        matches = []
+        for row in fab_data:
+            # Build searchable text from row
+            searchable_parts = []
+            for key, value in row.items():
+                if value:
+                    searchable_parts.append(f"{key}: {value}")
+            searchable_text = " ".join(searchable_parts).lower()
+
+            # Check company filter first
+            if company_lower:
+                company_match = (
+                    company_lower in searchable_text or
+                    company_lower in row.get("company", "").lower() or
+                    company_lower in row.get("ticker", "").lower() or
+                    company_lower in row.get("Company", "").lower() or
+                    company_lower in row.get("Ticker", "").lower()
+                )
+                if not company_match:
+                    continue
+
+            # Score based on query term matches
+            score = 0
+            for term in query_terms:
+                if term in searchable_text:
+                    score += 1
+                    # Bonus for exact field matches
+                    for value in row.values():
+                        if value and term in str(value).lower():
+                            score += 0.5
+
+            if score > 0:
+                matches.append({
+                    "data": row,
+                    "score": score,
+                })
+
+        # Sort by score and take top results
+        matches.sort(key=lambda x: x["score"], reverse=True)
+        top_matches = matches[:10]
+
+        elapsed = int((time.time() - start) * 1000)
+        self._record_call("fab_benchmark", "search_fab_benchmark", top_matches, elapsed)
+
+        # Format results for LLM consumption
+        formatted_results = []
+        for match in top_matches:
+            formatted_results.append(match["data"])
+
+        return {
+            "query": query,
+            "company_filter": company if company else None,
+            "total_matches": len(matches),
+            "results": formatted_results,
+            "source": "FAB Finance Agent Benchmark dataset",
+        }
 
     # =========================================================================
     # Composite Methods
