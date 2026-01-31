@@ -163,7 +163,7 @@ class UnifiedScorer:
 
         Args:
             score: Raw score from evaluator
-            dataset_type: Type of dataset (bizfinbench, public_csv, gdpval, options, synthetic)
+            dataset_type: Type of dataset (bizfinbench, public_csv, gdpval, options, synthetic, crypto)
 
         Returns:
             Normalized score in 0-100 range
