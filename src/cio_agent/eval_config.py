@@ -2,7 +2,7 @@
 Evaluation configuration for Green Agent.
 
 Supports multi-dataset evaluation with configurable:
-- Multiple datasets (BizFinBench, public.csv, options, crypto scenarios)
+- Multiple datasets (BizFinBench, PRBench, options, crypto scenarios)
 - Task type filtering
 - Language filtering
 - Shuffle and sampling strategies
@@ -79,17 +79,20 @@ class BizFinBenchDatasetConfig(BaseModel):
         return v
 
 
-class PublicCsvDatasetConfig(BaseModel):
-    """Configuration for public.csv dataset."""
-    type: Literal["public_csv"] = "public_csv"
-    path: str = "finance-agent/data/public.csv"
-    categories: Optional[List[str]] = Field(
+class PRBenchDatasetConfig(BaseModel):
+    """Configuration for PRBench dataset (fetched from HuggingFace)."""
+    type: Literal["prbench"] = "prbench"
+    splits: List[str] = Field(
+        default=["finance", "legal"],
+        description="Splits to include: finance, legal, finance_hard, legal_hard"
+    )
+    topics: Optional[List[str]] = Field(
         default=None,
-        description="Categories to include. None means all."
+        description="Topics to filter by. None means all."
     )
     limit: Optional[int] = Field(
         default=None,
-        description="Limit number of examples"
+        description="Limit number of examples per split"
     )
     shuffle: bool = Field(
         default=False,
@@ -99,6 +102,17 @@ class PublicCsvDatasetConfig(BaseModel):
         default=1.0,
         description="Sampling weight relative to other datasets"
     )
+    include_reference_texts: bool = Field(
+        default=True,
+        description="Include reference documents in metadata"
+    )
+
+    @field_validator("splits", mode="before")
+    @classmethod
+    def expand_all_splits(cls, v):
+        if v == "all" or v == ["all"]:
+            return ["finance", "legal", "finance_hard", "legal_hard"]
+        return v
 
 
 class SyntheticDatasetConfig(BaseModel):
@@ -313,7 +327,7 @@ class GDPValDatasetConfig(BaseModel):
 # Union type for all dataset configs
 DatasetConfig = Union[
     BizFinBenchDatasetConfig,
-    PublicCsvDatasetConfig,
+    PRBenchDatasetConfig,
     SyntheticDatasetConfig,
     OptionsDatasetConfig,
     CryptoDatasetConfig,
@@ -346,7 +360,7 @@ class LLMEvaluationConfig(BaseModel):
     """Configuration for LLM-as-judge dataset evaluation."""
     enabled: Optional[bool] = Field(
         default=None,
-        description="Enable LLM grading for dataset evaluators (bizfinbench/public_csv)."
+        description="Enable LLM grading for dataset evaluators (bizfinbench/prbench)."
     )
     model: Optional[str] = Field(
         default=None,
@@ -477,8 +491,8 @@ class ConfigurableDatasetLoader:
         """Load examples from a single dataset configuration."""
         if config.type == "bizfinbench":
             return self._load_bizfinbench(config)
-        elif config.type == "public_csv":
-            return self._load_public_csv(config)
+        elif config.type == "prbench":
+            return self._load_prbench(config)
         elif config.type == "synthetic":
             return self._load_synthetic(config)
         elif config.type == "options":
@@ -525,37 +539,43 @@ class ConfigurableDatasetLoader:
 
         return examples
 
-    def _load_public_csv(self, config: PublicCsvDatasetConfig) -> List[LoadedExample]:
-        """Load public.csv examples."""
-        from cio_agent.data_providers import CsvFinanceDatasetProvider
-        
-        provider = CsvFinanceDatasetProvider(path=config.path)
+    def _load_prbench(self, config: PRBenchDatasetConfig) -> List[LoadedExample]:
+        """Load PRBench examples from HuggingFace."""
+        from cio_agent.data_providers import PRBenchProvider
+
+        provider = PRBenchProvider(
+            splits=config.splits,
+            topics=config.topics,
+            limit=config.limit,
+            include_reference_texts=config.include_reference_texts,
+        )
         raw_examples = provider.load()
-        
+
         examples = []
         for ex in raw_examples:
             category = ex.category.value if hasattr(ex.category, 'value') else str(ex.category)
-            
-            # Filter by category if specified
-            if config.categories and category not in config.categories:
-                continue
-            
+            domain = ex.metadata.get("domain", "")
+            topic = ex.metadata.get("topic", "")
+
             examples.append(LoadedExample(
                 example_id=ex.example_id,
                 question=ex.question,
                 answer=ex.answer,
-                dataset_type="public_csv",
+                dataset_type="prbench",
                 category=category,
+                task_type=topic,
                 metadata={
-                    "source": "public_csv",
+                    "source": "prbench",
+                    "domain": domain,
+                    "topic": topic,
+                    "split": ex.metadata.get("split", ""),
                     "rubric": getattr(ex, 'rubric', None),
+                    "rubric_weights": ex.metadata.get("rubric_weights", {}),
+                    "turns": ex.metadata.get("turns", 1),
+                    "reference_texts": ex.metadata.get("reference_texts", []),
                 },
             ))
-        
-        # Apply per-dataset limit
-        if config.limit:
-            examples = examples[:config.limit]
-        
+
         return examples
 
     def _load_synthetic(self, config: SyntheticDatasetConfig) -> List[LoadedExample]:
@@ -898,7 +918,8 @@ class ConfigurableDatasetLoader:
         """Sample equal number from each dataset type."""
         by_type: Dict[str, List[LoadedExample]] = {}
         for ex in examples:
-            key = f"{ex.dataset_type}_{ex.task_type or 'default'}"
+            # Group by dataset_type only to ensure equal representation across datasets
+            key = ex.dataset_type
             if key not in by_type:
                 by_type[key] = []
             by_type[key].append(ex)
@@ -1002,8 +1023,9 @@ def create_default_config() -> EvaluationConfig:
                 languages=["en"],
                 limit_per_task=10,
             ),
-            PublicCsvDatasetConfig(
-                path="finance-agent/data/public.csv",
+            PRBenchDatasetConfig(
+                # Data fetched from HuggingFace ScaleAI/PRBench
+                splits=["finance", "legal"],
                 limit=20,
             ),
             OptionsDatasetConfig(

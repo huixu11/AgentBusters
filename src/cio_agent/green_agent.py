@@ -9,7 +9,7 @@ Supported modes:
     - config: Use YAML config file for multi-dataset evaluation
     - synthetic: Generated questions from JSON file
     - bizfinbench: HiThink BizFinBench.v2 dataset (single task type)
-    - public_csv: FAB++ public.csv dataset
+    - prbench: Scale AI PRBench dataset (professional reasoning)
     - crypto: Crypto trading benchmark scenarios (config mode)
 """
 
@@ -44,7 +44,7 @@ from cio_agent.crypto_benchmark import CryptoTradingEvaluator, stable_seed
 from cio_agent.data_providers import BizFinBenchProvider, CsvFinanceDatasetProvider
 
 # Dataset-specific evaluators
-from evaluators import BizFinBenchEvaluator, PublicCsvEvaluator, OptionsEvaluator
+from evaluators import BizFinBenchEvaluator, PRBenchEvaluator, OptionsEvaluator
 from evaluators.gdpval_evaluator import GDPValEvaluator
 from evaluators.llm_utils import build_llm_client, should_use_llm
 
@@ -113,7 +113,7 @@ class GreenAgent:
             synthetic_questions: Optional list of synthetic questions to use
                                 for evaluation. If provided, these will be used
                                 instead of generating new tasks.
-            dataset_type: Type of dataset to use ('synthetic', 'bizfinbench', 'public_csv')
+            dataset_type: Type of dataset to use ('synthetic', 'bizfinbench', 'prbench')
             dataset_path: Path to dataset directory or file
             task_type: For BizFinBench, the specific task type to evaluate
             language: Language for BizFinBench ('en' or 'cn')
@@ -200,7 +200,7 @@ class GreenAgent:
                     llm_model=self.llm_model,
                     llm_temperature=self.llm_temperature,
                 ),
-                "public_csv": PublicCsvEvaluator(
+                "prbench": PRBenchEvaluator(
                     use_llm=self.use_llm,
                     llm_client=self.llm_client,
                     llm_model=self.llm_model,
@@ -233,10 +233,14 @@ class GreenAgent:
             )
             self._examples = self.dataset_provider.load()
             
-        elif dataset_type == "public_csv" and dataset_path:
-            # Legacy single public.csv dataset
-            self.dataset_provider = CsvFinanceDatasetProvider(path=dataset_path)
-            self.dataset_evaluator = PublicCsvEvaluator(
+        elif dataset_type == "prbench":
+            # Legacy single PRBench dataset
+            from cio_agent.data_providers import PRBenchProvider
+            self.dataset_provider = PRBenchProvider(
+                splits=["finance", "legal"],
+                limit=limit,
+            )
+            self.dataset_evaluator = PRBenchEvaluator(
                 use_llm=self.use_llm,
                 llm_client=self.llm_client,
                 llm_model=self.llm_model,
@@ -456,7 +460,7 @@ class GreenAgent:
                 )
                 return
             
-            elif self._examples and self.dataset_type in ("bizfinbench", "public_csv"):
+            elif self._examples and self.dataset_type in ("bizfinbench", "prbench"):
                 # Legacy: Use single dataset examples directly
                 await updater.update_status(
                     TaskState.working,
@@ -898,29 +902,28 @@ class GreenAgent:
                     result["llm_used"] = eval_result.details.get("llm_used", False) if eval_result.details else False
                     result["sub_scores"] = {}
                     
-                elif self.dataset_type == "public_csv":
-                    # Build rubric from example
-                    rubric_list = []
-                    if hasattr(example, 'rubric') and example.rubric:
-                        for criterion in getattr(example.rubric, 'criteria', []):
-                            rubric_list.append({"operator": "correctness", "criteria": criterion})
-                        for penalty in getattr(example.rubric, 'penalty_conditions', []):
-                            rubric_list.append({"operator": "contradiction", "criteria": penalty})
-                    
+                elif self.dataset_type == "prbench":
+                    # PRBench uses weighted rubric criteria
+                    rubric = getattr(example, 'rubric', None)
+                    rubric_weights = example.metadata.get("rubric_weights", {}) if hasattr(example, 'metadata') else {}
+
                     eval_result = self.dataset_evaluator.evaluate(
                         predicted=response,
                         expected=example.answer,
-                        rubric=rubric_list if rubric_list else None,
+                        rubric=rubric,
+                        rubric_weights=rubric_weights,
                         question=example.question,
+                        domain=example.metadata.get("domain", "") if hasattr(example, 'metadata') else "",
+                        topic=example.metadata.get("topic", "") if hasattr(example, 'metadata') else "",
                     )
                     result = {
                         "example_id": example.example_id,
                         "category": example.category.value if hasattr(example.category, 'value') else str(example.category),
                         "question": example.question[:200] + "..." if len(example.question) > 200 else example.question,
-                        "expected": example.answer[:100] + "..." if len(example.answer) > 100 else example.answer,
+                        "expected": example.answer[:100] + "..." if example.answer and len(example.answer) > 100 else (example.answer or ""),
                         "predicted": predicted_text,
                         "score": eval_result.score,
-                        "is_correct": eval_result.score >= 0.8,  # Threshold for correctness
+                        "is_correct": eval_result.score >= 0.7,  # Threshold for correctness
                         "correct_count": eval_result.correct_count,
                         "total_count": eval_result.total_count,
                         "feedback": eval_result.feedback,
@@ -930,9 +933,8 @@ class GreenAgent:
                             "llm_used",
                             "llm_failure",
                             "llm_raw_output",
-                            "llm_partial",
-                            "llm_item_count_expected",
-                            "llm_item_count_actual",
+                            "matched_criteria",
+                            "triggered_penalties",
                         ):
                             if key in eval_result.details:
                                 result[key] = eval_result.details.get(key)
@@ -1065,33 +1067,29 @@ class GreenAgent:
                             if key in eval_result.details:
                                 result[key] = eval_result.details.get(key)
                     
-                elif example.dataset_type == "public_csv":
-                    # Build rubric from metadata if available
-                    rubric_list = []
-                    rubric_data = example.metadata.get("rubric")
-                    if rubric_data:
-                        if hasattr(rubric_data, 'criteria'):
-                            for criterion in rubric_data.criteria:
-                                rubric_list.append({"operator": "correctness", "criteria": criterion})
-                        if hasattr(rubric_data, 'penalty_conditions'):
-                            for penalty in rubric_data.penalty_conditions:
-                                rubric_list.append({"operator": "contradiction", "criteria": penalty})
-                    
+                elif example.dataset_type == "prbench":
+                    # PRBench uses weighted rubric criteria
+                    rubric = example.metadata.get("rubric")
+                    rubric_weights = example.metadata.get("rubric_weights", {})
+
                     eval_result = evaluator.evaluate(
                         predicted=response,
                         expected=example.answer,
-                        rubric=rubric_list if rubric_list else None,
+                        rubric=rubric,
+                        rubric_weights=rubric_weights,
                         question=example.question,
+                        domain=example.metadata.get("domain", ""),
+                        topic=example.metadata.get("topic", ""),
                     )
                     result = {
                         "example_id": example.example_id,
                         "dataset_type": example.dataset_type,
                         "category": example.category,
                         "question": example.question[:200] + "..." if len(example.question) > 200 else example.question,
-                        "expected": example.answer[:100] + "..." if len(example.answer) > 100 else example.answer,
+                        "expected": (example.answer[:100] + "...") if example.answer and len(example.answer) > 100 else (example.answer or ""),
                         "predicted": predicted_text,
                         "score": eval_result.score,
-                        "is_correct": eval_result.score >= 0.8,
+                        "is_correct": eval_result.score >= 0.7,
                         "correct_count": eval_result.correct_count,
                         "total_count": eval_result.total_count,
                         "feedback": eval_result.feedback,
@@ -1101,9 +1099,8 @@ class GreenAgent:
                             "llm_used",
                             "llm_failure",
                             "llm_raw_output",
-                            "llm_partial",
-                            "llm_item_count_expected",
-                            "llm_item_count_actual",
+                            "matched_criteria",
+                            "triggered_penalties",
                         ):
                             if key in eval_result.details:
                                 result[key] = eval_result.details.get(key)

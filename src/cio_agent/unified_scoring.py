@@ -5,7 +5,7 @@ Normalizes all evaluator outputs to 0-100 scale and computes
 a weighted overall score across sections.
 
 Sections and Weights:
-- Knowledge Retrieval (20%): bizfinbench, public_csv
+- Knowledge Retrieval (20%): bizfinbench, prbench
 - Analytical Reasoning (20%): synthetic
 - Options Trading (20%): options
 - Crypto Trading (20%): crypto
@@ -29,7 +29,7 @@ class ScoreSection(str, Enum):
 # Dataset to section mapping
 DATASET_SECTION_MAP: dict[str, ScoreSection] = {
     "bizfinbench": ScoreSection.KNOWLEDGE_RETRIEVAL,
-    "public_csv": ScoreSection.KNOWLEDGE_RETRIEVAL,
+    "prbench": ScoreSection.KNOWLEDGE_RETRIEVAL,
     "synthetic": ScoreSection.ANALYTICAL_REASONING,
     "options": ScoreSection.OPTIONS_TRADING,
     "crypto": ScoreSection.CRYPTO_TRADING,
@@ -163,12 +163,12 @@ class UnifiedScorer:
 
         Args:
             score: Raw score from evaluator
-            dataset_type: Type of dataset (bizfinbench, public_csv, gdpval, options, synthetic, crypto)
+            dataset_type: Type of dataset (bizfinbench, prbench, gdpval, options, synthetic, crypto)
 
         Returns:
             Normalized score in 0-100 range
         """
-        if dataset_type in ("bizfinbench", "public_csv", "synthetic", "gdpval"):
+        if dataset_type in ("bizfinbench", "prbench", "synthetic", "gdpval"):
             # These evaluators return 0.0-1.0
             return min(100.0, max(0.0, score * 100.0))
         elif dataset_type in ("options", "crypto"):

@@ -99,7 +99,7 @@ class EvaluatorLLMConfig:
         temperature=0.0,  # Must be 0 for reproducibility (LLM-as-judge)
         max_tokens=1500,
     ))
-    public_csv: EvaluatorModelConfig = field(default_factory=lambda: EvaluatorModelConfig(
+    prbench: EvaluatorModelConfig = field(default_factory=lambda: EvaluatorModelConfig(
         model="gpt-4o-mini",
         temperature=0.0,
         max_tokens=1000,
@@ -150,7 +150,7 @@ class EvaluatorLLMConfig:
                 pass
 
         # Per-evaluator overrides
-        evaluator_names = ["macro", "execution", "gdpval", "bizfinbench", "debate", "public_csv"]
+        evaluator_names = ["macro", "execution", "gdpval", "bizfinbench", "debate", "prbench"]
 
         for name in evaluator_names:
             upper_name = name.upper()

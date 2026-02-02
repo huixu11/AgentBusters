@@ -7,7 +7,7 @@ This module provides the abstract base class that all dataset evaluators impleme
 SCORING CONVENTION:
     - All evaluators should return scores normalized to 0.0 - 1.0 scale
     - BizFinBenchEvaluator: 0.0 or 1.0 (binary correct/incorrect)
-    - PublicCsvEvaluator: 0.0 to 1.0 (correctness - penalties, normalized)
+    - PRBenchEvaluator: 0.0 to 1.0 (weighted rubric scoring, normalized)
     - OptionsEvaluator: Returns 0-100 internally, caller should normalize to 0-1
 
     The GreenAgent normalizes all scores to 0-1 for consistent aggregation.
