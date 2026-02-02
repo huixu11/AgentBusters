@@ -44,6 +44,12 @@ datasets:
     shuffle: false
     weight: 1.0
 
+  - type: synthetic
+    path: data/synthetic_questions/questions.json
+    limit: 20
+    shuffle: false
+    weight: 1.0
+
   - type: options
     path: data/options/questions.json
     categories: null
