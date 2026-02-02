@@ -22,8 +22,6 @@ on:
 env:
   GREEN_IMAGE: ghcr.io/yxc20089/agentbusters-green:latest
   PURPLE_IMAGE: ghcr.io/yxc20089/agentbusters-purple:latest
-  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
 jobs:
   evaluate:
@@ -54,10 +52,12 @@ jobs:
           docker run -d \
             --name purple-agent \
             --network eval-network \
-            -p 9110:8001 \
-            -e OPENAI_API_KEY=$OPENAI_API_KEY \
-            -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
-            $PURPLE_IMAGE
+            -p 9110:9110 \
+            -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+            -e ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
+            $PURPLE_IMAGE \
+            --host 0.0.0.0 \
+            --port 9110
 
           # Wait for purple agent to be ready
           echo "Waiting for Purple Agent to start..."
@@ -75,10 +75,11 @@ jobs:
             --name green-agent \
             --network eval-network \
             -p 9109:9109 \
-            -e OPENAI_API_KEY=$OPENAI_API_KEY \
-            -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+            -e OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+            -e ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
             $GREEN_IMAGE \
             --host 0.0.0.0 \
+            --port 9109 \
             --eval-config ${{ github.event.inputs.eval_config }} \
             --store-predicted \
             --no-truncate-predicted
