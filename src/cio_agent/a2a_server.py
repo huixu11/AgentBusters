@@ -99,7 +99,7 @@ def main():
         "--dataset-type",
         type=str,
         default="synthetic",
-        choices=["synthetic", "bizfinbench", "public_csv"],
+        choices=["synthetic", "bizfinbench", "prbench"],
         help="Type of dataset (legacy, use --eval-config instead)"
     )
     parser.add_argument(
@@ -128,12 +128,12 @@ def main():
     eval_group.add_argument(
         "--eval-llm",
         action="store_true",
-        help="Enable LLM grading for dataset evaluators (bizfinbench/public_csv)"
+        help="Enable LLM grading for dataset evaluators (bizfinbench/prbench)"
     )
     eval_group.add_argument(
         "--no-eval-llm",
         action="store_true",
-        help="Disable LLM grading for dataset evaluators (bizfinbench/public_csv)"
+        help="Disable LLM grading for dataset evaluators (bizfinbench/prbench)"
     )
     parser.add_argument(
         "--eval-llm-model",
@@ -186,7 +186,7 @@ def main():
                 return 1
             eval_config = env_eval_config
             print(f"Using evaluation config from EVAL_CONFIG: {env_eval_config}")
-        elif args.dataset_type in ("bizfinbench", "public_csv") and not args.dataset_path:
+        elif args.dataset_type == "bizfinbench" and not args.dataset_path:
             print(f"Error: --dataset-path is required for {args.dataset_type}")
             return 1
 

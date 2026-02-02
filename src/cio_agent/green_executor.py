@@ -72,7 +72,7 @@ class GreenAgentExecutor(AgentExecutor):
                         When provided, other dataset params are ignored.
             synthetic_questions: Optional list of synthetic questions to use
                                 for evaluation instead of generating new ones.
-            dataset_type: Type of dataset ('synthetic', 'bizfinbench', 'public_csv')
+            dataset_type: Type of dataset ('synthetic', 'bizfinbench', 'prbench')
             dataset_path: Path to dataset directory or file
             task_type: For BizFinBench, the specific task type to evaluate
             language: Language for BizFinBench ('en' or 'cn')

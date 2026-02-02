@@ -7,32 +7,32 @@ datasets:
       - event_logic_reasoning
       - financial_quantitative_computation
     languages: [en]
-    limit_per_task: 5
+    limit_per_task: 10
     shuffle: false
     weight: 1.0
 
-  - type: public_csv
-    path: "finance-agent/data/public.csv"
-    limit: 5
+  - type: prbench
+    splits: [finance, legal]
+    limit: 10
     shuffle: false
     weight: 1.0
 
   - type: options
     path: "data/options/questions.json"
-    limit: 10
+    limit: 20
     shuffle: false
     weight: 1.0
 
   - type: synthetic
     path: "data/synthetic_questions/questions.json"
-    limit: 10
+    limit: 20
     shuffle: false
     weight: 1.0
 
   - type: crypto
     path: data/crypto/cache  # Cache dir for downloaded scenarios
     download_on_missing: true  # Download from EVAL_DATA_REPO
-    limit: 2
+    limit: 4
     shuffle: false
     weight: 1.0
     stride: 1
@@ -61,14 +61,14 @@ datasets:
 
   - type: gdpval
     hf_dataset: "openai/gdpval"
-    limit: 10
+    limit: 20
     shuffle: false
     weight: 1.0
     include_reference_files: true  # Enable reference files for full evaluation
 
 sampling:
   strategy: stratified
-  total_limit: 30
+  total_limit: 60
   seed: 42
 
 llm_eval:
