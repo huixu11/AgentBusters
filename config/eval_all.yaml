@@ -1,5 +1,5 @@
 # AgentBusters All-Dataset Evaluation Configuration
-# Includes: BizFinBench, public.csv, options, crypto, GDPVal
+# Includes: BizFinBench, PRBench, options, crypto, GDPVal
 # Note: crypto hidden data must be available at data/crypto/hidden.
 
 name: "AgentBusters All Datasets Evaluation"
@@ -37,10 +37,16 @@ datasets:
     shuffle: false
     weight: 1.0
 
-  - type: public_csv
-    path: finance-agent/data/public.csv
-    categories: null
+  - type: prbench
+    splits: [finance, legal, finance_hard, legal_hard]
+    topics: null
     limit: 30
+    shuffle: false
+    weight: 1.0
+
+  - type: synthetic
+    path: data/synthetic_questions/questions.json
+    limit: 20
     shuffle: false
     weight: 1.0
 

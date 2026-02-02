@@ -10,13 +10,12 @@ COPY --chown=agent:agent pyproject.toml ./
 COPY --chown=agent:agent README.md ./
 COPY --chown=agent:agent src src
 
-# Note: BizFinBench data is fetched dynamically from HuggingFace API at runtime
-# Only small local data files needed for Options and CSV datasets
+# Note: BizFinBench and PRBench data are fetched dynamically from HuggingFace API at runtime
+# Only small local data files needed for Options and Synthetic datasets
 # Note: PyTorch/sentence-transformers removed - using LLM for semantic similarity instead
 COPY --chown=agent:agent data/options data/options
 COPY --chown=agent:agent data/synthetic_questions data/synthetic_questions
 COPY --chown=agent:agent data/crypto/scenarios data/crypto/scenarios
-COPY --chown=agent:agent finance-agent/data/public.csv finance-agent/data/public.csv
 COPY --chown=agent:agent config config
 
 # Install dependencies with uv
@@ -27,5 +26,5 @@ RUN \
 # Entry point for the Green Agent A2A server
 ENV EVAL_CONFIG="config/eval_config.yaml"
 ENTRYPOINT ["uv", "run", "src/cio_agent/a2a_server.py"]
-CMD ["--host", "0.0.0.0", "--eval-config", "config/eval_config.yaml", "--store-predicted", "--no-truncate-predicted"]
+CMD ["--host", "0.0.0.0", "--port", "9109", "--eval-config", "config/eval_config.yaml", "--store-predicted", "--no-truncate-predicted"]
 EXPOSE 9109

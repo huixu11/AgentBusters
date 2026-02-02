@@ -5,6 +5,7 @@ from cio_agent.data_providers.base_jsonl_provider import BaseJSONLProvider
 from cio_agent.data_providers.bizfinbench_provider import BizFinBenchProvider
 from cio_agent.data_providers.csv_provider import CsvFinanceDatasetProvider
 from cio_agent.data_providers.options_provider import OptionsDatasetProvider
+from cio_agent.data_providers.prbench_provider import PRBenchProvider
 
 __all__ = [
     "DatasetExample",
@@ -13,4 +14,5 @@ __all__ = [
     "BizFinBenchProvider",
     "CsvFinanceDatasetProvider",
     "OptionsDatasetProvider",
+    "PRBenchProvider",
 ]

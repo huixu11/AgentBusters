@@ -12,8 +12,8 @@ datasets:
     shuffle: false
     weight: 1.0
 
-  - type: public_csv
-    path: finance-agent/data/public.csv
+  - type: prbench
+    splits: [finance, legal]
     limit: 3
     shuffle: false
     weight: 1.0

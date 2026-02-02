@@ -10,7 +10,7 @@ This module provides the hierarchical evaluation framework:
 Dataset-specific evaluators:
 - BaseDatasetEvaluator: Abstract base for dataset evaluators
 - BizFinBenchEvaluator: For BizFinBench.v2 dataset
-- PublicCsvEvaluator: For public.csv (FAB++) dataset
+- PRBenchEvaluator: For Scale AI PRBench dataset
 - OptionsEvaluator: Options trading task assessment
 """
 
@@ -38,7 +38,7 @@ except ImportError:
 # Dataset-specific evaluators (minimal dependencies)
 from evaluators.base import BaseDatasetEvaluator, EvalResult
 from evaluators.bizfinbench_evaluator import BizFinBenchEvaluator
-from evaluators.public_csv_evaluator import PublicCsvEvaluator
+from evaluators.prbench_evaluator import PRBenchEvaluator
 
 # Build __all__ dynamically
 __all__ = [
@@ -53,7 +53,7 @@ __all__ = [
     "BaseDatasetEvaluator",
     "EvalResult",
     "BizFinBenchEvaluator",
-    "PublicCsvEvaluator",
+    "PRBenchEvaluator",
 ]
 
 # Only export core evaluators if they were successfully imported
