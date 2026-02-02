@@ -207,14 +207,29 @@ For production deployment with PostgreSQL and hidden windows, see [docs/DEPLOYME
 Use these exact commands to run the whole stack locally with openai/gpt-oss-20b. Each terminal runs one long-lived process; keep them open.
 
 ```bash
-# (Optional) Terminal 1 — Local LLM (vLLM: openai/gpt-oss-20b)
+# (Optional) Terminal 1 — Local LLM with vLLM
 # conda activate /chronos_data/conda_envs/py313
 # Install vLLM
 # pip install vllm
 
-#export LIBRARY_PATH="/chronos_data/huixu/libcuda_stub:$LIBRARY_PATH"
-#export LD_LIBRARY_PATH="/chronos_data/huixu/libcuda_stub:$LD_LIBRARY_PATH"
-vllm serve openai/gpt-oss-20b --port 8000
+# IMPORTANT: Enable tool calling support with --enable-auto-tool-choice and --tool-call-parser
+# Use the deployment script for easy setup:
+python scripts/deploy_vllm.py --model qwen3-32b --dry-run  # Preview command
+python scripts/deploy_vllm.py --model qwen3-32b            # Deploy
+
+# Or manually start vLLM with tool calling enabled:
+vllm serve Qwen/Qwen3-32B --port 8000 \
+    --enable-auto-tool-choice \
+    --tool-call-parser qwen3_xml
+
+# Supported tool-call-parser values by model:
+#   Qwen3:      qwen3_xml (recommended), qwen3_coder
+#   DeepSeek:   deepseek_v3, deepseek_v31, deepseek_v32
+#   Llama 3.x:  llama3_json
+#   Llama 4.x:  llama4_json, llama4_pythonic
+#   Mistral:    mistral
+#   Others:     hermes (generic), internlm, jamba, granite
+
 # For multi-GPU: add --tensor-parallel-size=2
 
 You can also set `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in `.env`.
@@ -571,8 +586,15 @@ LLM_PROVIDER=openai
 OPENAI_API_BASE=http://localhost:8000/v1
 OPENAI_BASE_URL=http://localhost:8000/v1  # alias for OPENAI_API_BASE
 OPENAI_API_KEY=dummy
-LLM_MODEL=openai/gpt-oss-20b
+LLM_MODEL=Qwen/Qwen3-32B  # or your deployed model
 ```
+
+> **Note**: vLLM must be started with tool calling enabled:
+> ```bash
+> python scripts/deploy_vllm.py --model qwen3-32b  # Recommended
+> # Or manually:
+> vllm serve Qwen/Qwen3-32B --enable-auto-tool-choice --tool-call-parser qwen3_xml
+> ```
 
 ## MCP Server Configuration
 
@@ -684,13 +706,19 @@ cp .env.example .env
 # 2. Edit .env with your LLM configuration
 ```
 
-**For local vLLM (openai/gpt-oss-20b):**
+**For local vLLM (Qwen3-32B):**
 ```dotenv
 LLM_PROVIDER=openai
 OPENAI_API_BASE=http://localhost:8000/v1
 OPENAI_API_KEY=dummy
-LLM_MODEL=openai/gpt-oss-20b
+LLM_MODEL=Qwen/Qwen3-32B
 ```
+
+> ⚠️ **Important**: When starting vLLM, you must enable tool calling:
+> ```bash
+> vllm serve Qwen/Qwen3-32B --port 8000 --enable-auto-tool-choice --tool-call-parser qwen3_xml
+> ```
+> Or use the deployment script: `python scripts/deploy_vllm.py --model qwen3-32b`
 
 **For OpenAI API:**
 ```dotenv

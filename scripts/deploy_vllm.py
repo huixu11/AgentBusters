@@ -54,6 +54,7 @@ MODEL_CONFIGS = {
             "--trust-remote-code",
         ],
         "env_model_name": "Qwen/Qwen3-235B-A22B",
+        "tool_call_parser": "qwen3_xml",
     },
     "deepseek-v3-b200": {
         "name": "DeepSeek-V3.2-671B (3x B200)",
@@ -67,6 +68,7 @@ MODEL_CONFIGS = {
             "--trust-remote-code",
         ],
         "env_model_name": "deepseek-ai/DeepSeek-V3",
+        "tool_call_parser": "deepseek_v3",
     },
     # ========== H100 顶配 (8x 80GB) ==========
     "deepseek-v3-fp8": {
@@ -84,6 +86,7 @@ MODEL_CONFIGS = {
             "--kv-cache-dtype", "fp8_e4m3",
         ],
         "env_model_name": "deepseek-ai/DeepSeek-V3",
+        "tool_call_parser": "deepseek_v3",
     },
     "qwen3-235b": {
         "name": "Qwen3-235B-A22B (MoE)",
@@ -97,6 +100,7 @@ MODEL_CONFIGS = {
             "--trust-remote-code",
         ],
         "env_model_name": "Qwen/Qwen3-235B-A22B",
+        "tool_call_parser": "qwen3_xml",
     },
     # ========== 主要目标模型 ==========
     "qwen3-32b": {
@@ -109,6 +113,7 @@ MODEL_CONFIGS = {
         "default_max_len": 32768,
         "extra_args": [],
         "env_model_name": "Qwen/Qwen3-32B",
+        "tool_call_parser": "qwen3_xml",
     },
     "deepseek-v3": {
         "name": "DeepSeek-V3.2",
@@ -120,6 +125,7 @@ MODEL_CONFIGS = {
         "default_max_len": 16384,
         "extra_args": ["--trust-remote-code"],
         "env_model_name": "deepseek-ai/DeepSeek-V3",
+        "tool_call_parser": "deepseek_v3",
     },
     "qwen3-14b": {
         "name": "Qwen3-14B",
@@ -131,6 +137,7 @@ MODEL_CONFIGS = {
         "default_max_len": 32768,
         "extra_args": [],
         "env_model_name": "Qwen/Qwen3-14B",
+        "tool_call_parser": "qwen3_xml",
     },
     # ========== 其他备选模型 ==========
     "deepseek-r1": {
@@ -143,6 +150,7 @@ MODEL_CONFIGS = {
         "default_max_len": 16384,
         "extra_args": ["--trust-remote-code"],
         "env_model_name": "deepseek-ai/DeepSeek-R1",
+        "tool_call_parser": "deepseek_v3",
     },
     "llama3.1-70b": {
         "name": "Llama-3.1-70B",
@@ -154,6 +162,7 @@ MODEL_CONFIGS = {
         "default_max_len": 8192,
         "extra_args": [],
         "env_model_name": "meta-llama/Llama-3.1-70B-Instruct",
+        "tool_call_parser": "llama3_json",
     },
     "llama3.1-8b": {
         "name": "Llama-3.1-8B",
@@ -165,6 +174,7 @@ MODEL_CONFIGS = {
         "default_max_len": 8192,
         "extra_args": [],
         "env_model_name": "meta-llama/Llama-3.1-8B-Instruct",
+        "tool_call_parser": "llama3_json",
     },
     "mixtral-8x22b": {
         "name": "Mixtral-8x22B",
@@ -176,6 +186,7 @@ MODEL_CONFIGS = {
         "default_max_len": 8192,
         "extra_args": [],
         "env_model_name": "mistralai/Mixtral-8x22B-Instruct-v0.1",
+        "tool_call_parser": "mistral",
     },
 }
 
@@ -250,6 +261,9 @@ def build_vllm_command(
         "--tensor-parallel-size", str(num_gpus),
         "--max-model-len", str(context_len),
         "--gpu-memory-utilization", str(gpu_util),
+        # 启用工具调用支持
+        "--enable-auto-tool-choice",
+        "--tool-call-parser", cfg.get("tool_call_parser", "hermes"),
     ]
     
     # 添加额外参数
