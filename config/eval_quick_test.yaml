@@ -1,0 +1,69 @@
+# Quick Test Configuration (10 tasks)
+# For fast iteration and debugging
+
+name: "Quick Test"
+version: "1.0"
+
+datasets:
+  - type: bizfinbench
+    task_types:
+      - event_logic_reasoning
+    languages: [en]
+    limit_per_task: 2
+    shuffle: false
+    weight: 1.0
+
+  - type: synthetic
+    path: data/synthetic_questions/questions.json
+    limit: 3
+    shuffle: false
+    weight: 1.0
+
+  - type: options
+    path: data/options/questions.json
+    limit: 3
+    shuffle: false
+    weight: 1.0
+
+  - type: crypto
+    path: ../agentbusters-eval-data/crypto/eval_hidden
+    download_on_missing: false
+    limit: 2
+    shuffle: false
+    weight: 1.0
+    stride: 1
+    max_steps: 50
+    evaluation:
+      initial_balance: 10000.0
+      max_leverage: 3.0
+      trading_fee: 0.0004
+      price_noise_level: 0.001
+      slippage_range: [0.0002, 0.0010]
+      adversarial_injection_rate: 0.05
+      decision_interval: 10  # Faster: decide every 10 steps
+      funding_interval_hours: 8.0
+      score_weights:
+        baseline: 0.50
+        noisy: 0.30
+        adversarial: 0.20
+        meta: 0.0
+      metric_weights:
+        sharpe: 0.50
+        total_return: 0.25
+        max_drawdown: 0.15
+        win_rate: 0.10
+      meta_transforms:
+        - identity
+
+sampling:
+  strategy: stratified
+  total_limit: 10
+  seed: 42
+
+llm_eval:
+  enabled: true
+  model: gpt-4o-mini
+  temperature: 0.0
+
+debate: false
+timeout_seconds: 300

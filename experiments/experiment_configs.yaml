@@ -1,0 +1,188 @@
+# 实验配置定义
+# 用于系统性地测试不同的模型和配置
+
+experiments:
+  # ============================================
+  # 实验 1: 不同开源 LLM 模型对比
+  # ============================================
+  - name: "model_comparison"
+    description: "Compare different open-source LLM models"
+    configs:
+      # Llama 3.1 系列
+      - id: "llama3.1-70b"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        llm_api_base: "http://localhost:8000/v1"  # vLLM
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+        
+      - id: "llama3.1-8b"
+        llm_model: "meta-llama/llama-3.1-8b-instruct"
+        llm_api_base: "http://localhost:8000/v1"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+
+      # Qwen 2.5 系列
+      - id: "qwen2.5-72b"
+        llm_model: "qwen/qwen-2.5-72b-instruct"
+        llm_api_base: "https://openrouter.ai/api/v1"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+        
+      - id: "qwen2.5-32b"
+        llm_model: "qwen/qwen-2.5-32b-instruct"
+        llm_api_base: "https://openrouter.ai/api/v1"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+
+      # DeepSeek
+      - id: "deepseek-chat"
+        llm_model: "deepseek/deepseek-chat"
+        llm_api_base: "https://openrouter.ai/api/v1"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+        
+      - id: "deepseek-r1"
+        llm_model: "deepseek/deepseek-reasoner"
+        llm_api_base: "https://openrouter.ai/api/v1"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+
+      # Mixtral
+      - id: "mixtral-8x22b"
+        llm_model: "mistralai/mixtral-8x22b-instruct"
+        llm_api_base: "https://openrouter.ai/api/v1"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+
+  # ============================================
+  # 实验 2: 不同评测规模对比
+  # ============================================
+  - name: "scale_comparison"
+    description: "Compare evaluation at different scales to find representative sample size"
+    configs:
+      - id: "scale-10"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        eval_config: "config/eval_quick_test.yaml"
+        num_tasks: 10
+        
+      - id: "scale-50"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 50
+        
+      - id: "scale-100"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+        
+      - id: "scale-200"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        eval_config: "config/eval_large.yaml"
+        num_tasks: 200
+        
+      - id: "scale-500"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        eval_config: "config/eval_large.yaml"
+        num_tasks: 500
+
+  # ============================================
+  # 实验 3: 抽样策略对比
+  # ============================================
+  - name: "sampling_comparison"
+    description: "Compare different sampling strategies"
+    configs:
+      - id: "stratified-100"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        sampling_strategy: "stratified"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+        seed: 42
+        
+      - id: "random-100-seed42"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        sampling_strategy: "random"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+        seed: 42
+        
+      - id: "random-100-seed123"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        sampling_strategy: "random"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+        seed: 123
+        
+      - id: "sequential-100"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        sampling_strategy: "sequential"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+
+  # ============================================
+  # 实验 4: Temperature 对结果的影响
+  # ============================================
+  - name: "temperature_comparison"
+    description: "Compare different temperature settings"
+    configs:
+      - id: "temp-0.0"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        llm_temperature: 0.0
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+        
+      - id: "temp-0.3"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        llm_temperature: 0.3
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+        
+      - id: "temp-0.7"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        llm_temperature: 0.7
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+
+  # ============================================
+  # 实验 5: 只测 Crypto Trading
+  # ============================================
+  - name: "crypto_only"
+    description: "Focused crypto trading evaluation"
+    configs:
+      - id: "crypto-llama70b"
+        llm_model: "meta-llama/llama-3.1-70b-instruct"
+        eval_config: "config/eval_crypto.yaml"
+        num_tasks: 12
+        
+      - id: "crypto-qwen72b"
+        llm_model: "qwen/qwen-2.5-72b-instruct"
+        eval_config: "config/eval_crypto.yaml"
+        num_tasks: 12
+        
+      - id: "crypto-deepseek"
+        llm_model: "deepseek/deepseek-chat"
+        eval_config: "config/eval_crypto.yaml"
+        num_tasks: 12
+
+  # ============================================
+  # 实验 6: 商业 API 基准对比
+  # ============================================
+  - name: "commercial_baseline"
+    description: "Commercial API baseline for comparison"
+    configs:
+      - id: "gpt-4o"
+        llm_model: "gpt-4o"
+        llm_api_base: null  # 使用默认 OpenAI API
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+        
+      - id: "gpt-4o-mini"
+        llm_model: "gpt-4o-mini"
+        llm_api_base: null
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100
+        
+      - id: "claude-sonnet"
+        llm_model: "claude-sonnet-4-20250514"
+        llm_provider: "anthropic"
+        eval_config: "config/eval_medium.yaml"
+        num_tasks: 100

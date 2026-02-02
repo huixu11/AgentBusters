@@ -1,0 +1,111 @@
+# Large Scale Evaluation Configuration (500+ tasks)
+# Comprehensive benchmark with full dataset coverage
+
+name: "Large Scale Evaluation"
+version: "1.0"
+
+datasets:
+  # BizFinBench English - All task types
+  - type: bizfinbench
+    task_types:
+      - anomaly_information_tracing
+      - event_logic_reasoning
+      - financial_data_description
+      - financial_quantitative_computation
+      - user_sentiment_analysis
+      - stock_price_predict
+      - financial_multi_turn_perception
+    languages: [en]
+    limit_per_task: 30
+    shuffle: true
+    weight: 1.0
+
+  # BizFinBench Chinese - All task types including financial_report_analysis
+  - type: bizfinbench
+    task_types:
+      - anomaly_information_tracing
+      - event_logic_reasoning
+      - financial_data_description
+      - user_sentiment_analysis
+      - stock_price_predict
+      - financial_multi_turn_perception
+      - financial_report_analysis
+    languages: [cn]
+    limit_per_task: 20
+    shuffle: true
+    weight: 1.0
+
+  # PRBench - All splits
+  - type: prbench
+    splits: [finance, legal, finance_hard, legal_hard]
+    limit: 80
+    shuffle: true
+    weight: 1.0
+
+  # Synthetic Questions - Full set
+  - type: synthetic
+    path: data/synthetic_questions/questions.json
+    limit: 50
+    shuffle: true
+    weight: 1.0
+
+  # Options Trading - Extended
+  - type: options
+    path: data/options/questions.json
+    limit: 50
+    shuffle: true
+    weight: 1.0
+
+  # Crypto Trading - All scenarios
+  - type: crypto
+    path: ../agentbusters-eval-data/crypto/eval_hidden
+    download_on_missing: false
+    limit: 12  # All 12 available scenarios
+    shuffle: false
+    weight: 1.0
+    stride: 1
+    max_steps: 200
+    evaluation:
+      initial_balance: 10000.0
+      max_leverage: 3.0
+      trading_fee: 0.0004
+      price_noise_level: 0.001
+      slippage_range: [0.0002, 0.0010]
+      adversarial_injection_rate: 0.05
+      decision_interval: 1
+      funding_interval_hours: 8.0
+      score_weights:
+        baseline: 0.40
+        noisy: 0.30
+        adversarial: 0.20
+        meta: 0.10
+      metric_weights:
+        sharpe: 0.50
+        total_return: 0.25
+        max_drawdown: 0.15
+        win_rate: 0.10
+      meta_transforms:
+        - identity
+        - scale_1_1
+        - invert_returns
+
+  # GDPVal - Extended
+  - type: gdpval
+    hf_dataset: "openai/gdpval"
+    limit: 50
+    shuffle: true
+    weight: 1.0
+    include_reference_files: true
+
+sampling:
+  strategy: stratified
+  total_limit: 500
+  seed: 42
+
+llm_eval:
+  enabled: true
+  model: gpt-4o-mini
+  temperature: 0.0
+
+debate: false
+timeout_seconds: 900
