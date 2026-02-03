@@ -9,6 +9,7 @@ import os
 import asyncio
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -26,6 +27,19 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from purple_agent.card import get_agent_card
 from purple_agent.executor import FinanceAgentExecutor
+
+
+def _load_env():
+    """Load environment variables from .env file, searching multiple locations."""
+    if load_dotenv():  # Default: search from current dir
+        return
+    # Try to find .env relative to this script
+    script_dir = Path(__file__).resolve().parent
+    for search_dir in [script_dir, script_dir.parent, script_dir.parent.parent]:
+        env_file = search_dir / ".env"
+        if env_file.exists():
+            load_dotenv(env_file)
+            return
 
 
 def create_app(
@@ -55,24 +69,32 @@ def create_app(
         FastAPI application instance
     """
     # Load environment variables from .env if present
-    load_dotenv()
+    _load_env()
+    
+    # Initialize logger early
+    logger = logging.getLogger(__name__)
+    
     # Pull from environment if not provided explicitly
     openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
     anthropic_api_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
     default_model = model or os.environ.get("LLM_MODEL")
+    
+    logger.info(f"Model from args: {model}, from env: {os.environ.get('LLM_MODEL')}, resolved: {default_model}")
 
     # Initialize LLM client
     llm_client = None
+    base_url = None
 
     if openai_api_key:
         try:
             from openai import OpenAI
-            base_url = os.environ.get("OPENAI_API_BASE")
+            base_url = os.environ.get("OPENAI_API_BASE") or os.environ.get("OPENAI_BASE_URL")
             llm_client = OpenAI(
                 api_key=openai_api_key,
                 base_url=base_url  # Supports local vLLM
             )
             default_model = default_model or "gpt-4o"
+            logger.info(f"Using OpenAI client with base_url={base_url}, model={default_model}")
         except ImportError:
             pass
     elif anthropic_api_key:
@@ -80,6 +102,7 @@ def create_app(
             from anthropic import Anthropic
             llm_client = Anthropic(api_key=anthropic_api_key)
             default_model = default_model or "claude-sonnet-4-20250514"
+            logger.info(f"Using Anthropic client with model={default_model}")
         except ImportError:
             pass
 
@@ -91,9 +114,10 @@ def create_app(
         simulation_date=simulation_date,
         temperature=temperature,  # None = use env var or default 0.0
     )
+    
+    logger.info(f"FinanceAgentExecutor created with model={default_model or 'gpt-4o'}")
 
     # Create A2A infrastructure with persistent storage
-    logger = logging.getLogger(__name__)
     database_url = os.getenv("PURPLE_DATABASE_URL", "sqlite+aiosqlite:///purple_tasks.db")
     try:
         engine = create_async_engine(database_url)
