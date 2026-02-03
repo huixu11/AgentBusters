@@ -177,7 +177,7 @@ def create_edgar_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def get_xbrl_financials(
         ticker: str,
         statement_type: str = "IS",
@@ -252,7 +252,7 @@ def create_edgar_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def search_filings(
         ticker: str,
         form_type: str,
@@ -298,7 +298,7 @@ def create_edgar_server(
         except Exception as e:
             return [{"error": str(e)}]
 
-    @mcp.tool
+    @mcp.tool()
     def get_company_info(ticker: str) -> dict[str, Any]:
         """
         Get basic company information from SEC EDGAR.
