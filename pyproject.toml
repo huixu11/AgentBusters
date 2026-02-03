@@ -42,7 +42,7 @@ dependencies = [
     # A2A Protocol Support (updated for AgentBeats compatibility)
     # Note: removed sql extra and aiosqlite to use in-memory task storage (avoids SQLite conflicts)
     "a2a-sdk[http-server]==0.3.20",
-    "fastapi==0.115.6",
+    "fastapi==0.115.12",
     "uvicorn==0.38.0",
     "sqlalchemy==2.0.35",
     # MCP Protocol Support
