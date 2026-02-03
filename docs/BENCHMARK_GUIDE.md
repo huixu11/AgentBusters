@@ -774,6 +774,13 @@ timeout_seconds: 900
 
 ```bash
 # 终端 1: 启动 Green Agent (评测器)
+# 基础模式（不保存 Purple Agent 返回值，节省内存）
+python src/cio_agent/a2a_server.py \
+    --host 0.0.0.0 \
+    --port 9109 \
+    --eval-config config/eval_medium.yaml
+
+# 保存返回值（截断到 200 字符，推荐）
 python src/cio_agent/a2a_server.py \
     --host 0.0.0.0 \
     --port 9109 \
@@ -781,6 +788,15 @@ python src/cio_agent/a2a_server.py \
     --store-predicted \
     --predicted-max-chars 200
 
+# 保存完整返回值（用于详细分析，文件会很大）
+python src/cio_agent/a2a_server.py \
+    --host 0.0.0.0 \
+    --port 9109 \
+    --eval-config config/eval_medium.yaml \
+    --store-predicted \
+    --no-truncate-predicted
+
+# 快速测试配置
 python src/cio_agent/a2a_server.py \
     --host 0.0.0.0 \
     --port 9109 \
@@ -792,6 +808,7 @@ python src/cio_agent/a2a_server.py \
 purple-agent serve --host 0.0.0.0 --port 9110 --card-url http://127.0.0.1:9110
 
 # 终端 3: 运行评测
+# Linux/macOS (Bash)
 python scripts/run_a2a_eval.py \
     --green-url http://127.0.0.1:9109 \
     --purple-url http://127.0.0.1:9110 \
@@ -799,6 +816,15 @@ python scripts/run_a2a_eval.py \
     --timeout 1800 \
     -v \
     -o results/eval_medium_$(date +%Y%m%d_%H%M%S).json
+
+# Windows PowerShell
+python scripts/run_a2a_eval.py `
+    --green-url http://127.0.0.1:9109 `
+    --purple-url http://127.0.0.1:9110 `
+    --num-tasks 100 `
+    --timeout 1800 `
+    -v `
+    -o "results/eval_medium_$(Get-Date -Format 'yyyyMMdd_HHmmss').json"
 ```
 
 ### 方法 2: Docker 运行
@@ -815,6 +841,76 @@ docker-compose up
 ### 方法 3: 使用 Leaderboard 框架
 
 参见下一节 [多配置实验管理](#多配置实验管理)。
+
+---
+
+### 保存和查看 Purple Agent 返回值
+
+**为什么需要保存返回值？**
+- 调试 Purple Agent 的回答质量
+- 分析失败案例
+- 对比不同模型的输出风格
+
+**三种保存策略：**
+
+#### 1. 不保存（默认，节省内存）
+```bash
+python src/cio_agent/a2a_server.py \
+    --host 0.0.0.0 --port 9109 \
+    --eval-config config/eval_medium.yaml
+# 结果 JSON 中 predicted 字段为空
+```
+
+#### 2. 截断保存（推荐，平衡分析需求和文件大小）
+```bash
+python src/cio_agent/a2a_server.py \
+    --host 0.0.0.0 --port 9109 \
+    --eval-config config/eval_medium.yaml \
+    --store-predicted \
+    --predicted-max-chars 500  # 保存前 500 字符
+```
+
+#### 3. 完整保存（用于详细分析）
+```bash
+python src/cio_agent/a2a_server.py \
+    --host 0.0.0.0 --port 9109 \
+    --eval-config config/eval_medium.yaml \
+    --store-predicted \
+    --no-truncate-predicted
+# ⚠️ 警告：100 tasks 可能产生 50-100MB 的结果文件
+```
+
+**查看保存的返回值：**
+
+```python
+# 读取结果文件
+import json
+
+with open('results/eval_medium_20260203_120000.json') as f:
+    results = json.load(f)
+
+# 查看第一个任务的返回值
+task = results['tasks'][0]
+print(f"Task ID: {task['task_id']}")
+print(f"Question: {task['question']}")
+print(f"Purple Agent 回答: {task['predicted']}")
+print(f"Expected: {task['expected']}")
+print(f"Score: {task['score']}")
+
+# 统计返回值长度
+lengths = [len(t.get('predicted', '')) for t in results['tasks']]
+print(f"平均返回值长度: {sum(lengths) / len(lengths):.0f} 字符")
+print(f"最长返回值: {max(lengths)} 字符")
+```
+
+**文件大小参考：**
+
+| 配置 | 100 tasks | 500 tasks | 1000 tasks |
+|------|-----------|-----------|------------|
+| 不保存 | ~500 KB | ~2.5 MB | ~5 MB |
+| 截断 200 字符 | ~1 MB | ~5 MB | ~10 MB |
+| 截断 500 字符 | ~2 MB | ~10 MB | ~20 MB |
+| 完整保存 | ~50 MB | ~250 MB | ~500 MB |
 
 ---
 
