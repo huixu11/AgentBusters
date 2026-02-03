@@ -1365,7 +1365,12 @@ Your analysis should be:
                     if opts.get("expirations") and isinstance(opts["expirations"], dict):
                         exps = opts["expirations"].get("expirations", [])
                         if exps:
-                            prompt_parts.append(f"    Available Expirations: {', '.join(exps[:5])}")
+                            # Handle both string and dict formats for expirations
+                            exp_strs = [
+                                e if isinstance(e, str) else e.get("date", str(e))
+                                for e in exps[:5]
+                            ]
+                            prompt_parts.append(f"    Available Expirations: {', '.join(exp_strs)}")
                     if opts.get("sample_prices"):
                         prompt_parts.append("    Sample Option Prices (30-day):")
                         for sp in opts["sample_prices"][:3]:

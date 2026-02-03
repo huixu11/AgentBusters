@@ -32,6 +32,22 @@ from mcp_servers.risk_metrics import create_risk_metrics_server
 # Web search MCP server
 from mcp_servers.web_search import create_web_search_server
 
+async def _call_tool(server, tool_name: str, arguments: dict):
+    """Call a tool on a FastMCP server and parse the result.
+    
+    FastMCP 2.14+ uses call_tool() which returns a list of TextContent.
+    The actual result is JSON-encoded in the text attribute.
+    """
+    result = await server.call_tool(tool_name, arguments)
+    if result and hasattr(result[0], 'text'):
+        try:
+            return json.loads(result[0].text)
+        except json.JSONDecodeError:
+            return result[0].text
+    return result
+
+
+
 
 @dataclass
 class MCPToolMetrics:
@@ -171,9 +187,7 @@ class MCPToolkit:
             resp.raise_for_status()
             result = resp.json()
         else:
-            tools = await self._yfinance_server.list_tools()
-            get_quote = tools["get_quote"]
-            result = get_quote.fn(ticker=ticker)
+            result = await _call_tool(self._yfinance_server, "get_quote", {"ticker": ticker})
 
         elapsed = int((time.time() - start) * 1000)
 
@@ -197,12 +211,9 @@ class MCPToolkit:
         Returns:
             List of historical price data points
         """
-        tools = await self._yfinance_server.list_tools()
-        get_historical = tools["get_historical_prices"]
-
         import time
         start = time.time()
-        result = get_historical.fn(ticker=ticker, period=period, interval=interval)
+        result = await _call_tool(self._yfinance_server, "get_historical_prices", {"ticker": ticker, "period": period, "interval": interval})
         elapsed = int((time.time() - start) * 1000)
 
         self._record_call("yfinance", "get_historical_prices", result, elapsed)
@@ -225,12 +236,9 @@ class MCPToolkit:
         Returns:
             Financial statement data
         """
-        tools = await self._yfinance_server.list_tools()
-        get_financials = tools["get_financials"]
-
         import time
         start = time.time()
-        result = get_financials.fn(ticker=ticker, statement_type=statement_type, period=period)
+        result = await _call_tool(self._yfinance_server, "get_financials", {"ticker": ticker, "statement_type": statement_type, "period": period})
         elapsed = int((time.time() - start) * 1000)
 
         self._record_call("yfinance", "get_financials", result, elapsed)
@@ -257,9 +265,7 @@ class MCPToolkit:
             resp.raise_for_status()
             result = resp.json()
         else:
-            tools = await self._yfinance_server.list_tools()
-            get_stats = tools["get_key_statistics"]
-            result = get_stats.fn(ticker=ticker)
+            result = await _call_tool(self._yfinance_server, "get_key_statistics", {"ticker": ticker})
 
         elapsed = int((time.time() - start) * 1000)
 
@@ -276,12 +282,9 @@ class MCPToolkit:
         Returns:
             Analyst price targets and recommendations
         """
-        tools = await self._yfinance_server.list_tools()
-        get_estimates = tools["get_analyst_estimates"]
-
         import time
         start = time.time()
-        result = get_estimates.fn(ticker=ticker)
+        result = await _call_tool(self._yfinance_server, "get_analyst_estimates", {"ticker": ticker})
         elapsed = int((time.time() - start) * 1000)
 
         self._record_call("yfinance", "get_analyst_estimates", result, elapsed)
@@ -297,12 +300,9 @@ class MCPToolkit:
         Returns:
             Historical earnings and upcoming estimates
         """
-        tools = await self._yfinance_server.list_tools()
-        get_earnings = tools["get_earnings"]
-
         import time
         start = time.time()
-        result = get_earnings.fn(ticker=ticker)
+        result = await _call_tool(self._yfinance_server, "get_earnings", {"ticker": ticker})
         elapsed = int((time.time() - start) * 1000)
 
         self._record_call("yfinance", "get_earnings", result, elapsed)
@@ -333,9 +333,7 @@ class MCPToolkit:
             resp.raise_for_status()
             result = resp.json()
         else:
-            tools = await self._edgar_server.list_tools()
-            get_company = tools["get_company_info"]
-            result = get_company.fn(ticker=ticker)
+            result = await _call_tool(self._edgar_server, "get_company_info", {"ticker": ticker})
 
         elapsed = int((time.time() - start) * 1000)
 
@@ -373,9 +371,7 @@ class MCPToolkit:
             resp.raise_for_status()
             result = resp.json()
         else:
-            tools = await self._edgar_server.list_tools()
-            get_filing = tools["get_filing"]
-            result = get_filing.fn(ticker=ticker, form_type=form_type, fiscal_year=fiscal_year)
+            result = await _call_tool(self._edgar_server, "get_filing", {"ticker": ticker, "form_type": form_type, "fiscal_year": fiscal_year})
 
         elapsed = int((time.time() - start) * 1000)
 
@@ -415,9 +411,7 @@ class MCPToolkit:
             resp.raise_for_status()
             result = resp.json()
         else:
-            tools = await self._edgar_server.list_tools()
-            get_xbrl = tools["get_xbrl_financials"]
-            result = get_xbrl.fn(ticker=ticker, statement_type=statement_type, fiscal_year=fiscal_year)
+            result = await _call_tool(self._edgar_server, "get_xbrl_financials", {"ticker": ticker, "statement_type": statement_type, "fiscal_year": fiscal_year})
 
         elapsed = int((time.time() - start) * 1000)
 
@@ -456,9 +450,7 @@ class MCPToolkit:
             resp.raise_for_status()
             result = resp.json()
         else:
-            tools = await self._sandbox_server.list_tools()
-            execute = tools["execute_python"]
-            result = execute.fn(code=code, timeout=timeout)
+            result = await _call_tool(self._sandbox_server, "execute_python", {"code": code, "timeout": timeout})
 
         elapsed = int((time.time() - start) * 1000)
 
@@ -494,9 +486,7 @@ class MCPToolkit:
             resp.raise_for_status()
             result = resp.json()
         else:
-            tools = await self._sandbox_server.list_tools()
-            calc = tools["calculate_financial_metric"]
-            result = calc.fn(metric=metric, values=values)
+            result = await _call_tool(self._sandbox_server, "calculate_financial_metric", {"metric": metric, "values": values})
 
         elapsed = int((time.time() - start) * 1000)
 
@@ -532,9 +522,7 @@ class MCPToolkit:
             resp.raise_for_status()
             result = resp.json()
         else:
-            tools = await self._sandbox_server.list_tools()
-            analyze = tools["analyze_time_series"]
-            result = analyze.fn(data=data, operations=operations)
+            result = await _call_tool(self._sandbox_server, "analyze_time_series", {"data": data, "operations": operations})
 
         elapsed = int((time.time() - start) * 1000)
 
@@ -569,15 +557,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._options_chain_server.list_tools()
-        get_chain = tools["get_options_chain"]
-        result = get_chain.fn(
-            ticker=ticker,
-            expiration=expiration,
-            option_type=option_type,
-            min_strike=min_strike,
-            max_strike=max_strike,
-        )
+        result = await _call_tool(self._options_chain_server, "get_options_chain", {"ticker": ticker, "expiration": expiration, "option_type": option_type, "min_strike": min_strike, "max_strike": max_strike})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("options_chain", "get_options_chain", result, elapsed)
@@ -611,17 +591,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._options_chain_server.list_tools()
-        calc_price = tools["calculate_option_price"]
-        result = calc_price.fn(
-            spot_price=spot_price,
-            strike_price=strike_price,
-            days_to_expiry=days_to_expiry,
-            volatility=volatility,
-            risk_free_rate=risk_free_rate,
-            option_type=option_type,
-            dividend_yield=dividend_yield,
-        )
+        result = await _call_tool(self._options_chain_server, "calculate_option_price", {"spot_price": spot_price, "strike_price": strike_price, "days_to_expiry": days_to_expiry, "volatility": volatility, "risk_free_rate": risk_free_rate, "option_type": option_type, "dividend_yield": dividend_yield})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("options_chain", "calculate_option_price", result, elapsed)
@@ -651,15 +621,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._options_chain_server.list_tools()
-        calc_hist = tools["calculate_historical_option_price"]
-        result = calc_hist.fn(
-            ticker=ticker,
-            strike_price=strike_price,
-            expiration=expiration,
-            historical_date=historical_date,
-            option_type=option_type,
-        )
+        result = await _call_tool(self._options_chain_server, "calculate_historical_option_price", {"ticker": ticker, "strike_price": strike_price, "expiration": expiration, "historical_date": historical_date, "option_type": option_type})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("options_chain", "calculate_historical_option_price", result, elapsed)
@@ -683,9 +645,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._options_chain_server.list_tools()
-        get_vol = tools["get_volatility_analysis"]
-        result = get_vol.fn(ticker=ticker, lookback_days=lookback_days)
+        result = await _call_tool(self._options_chain_server, "get_volatility_analysis", {"ticker": ticker, "lookback_days": lookback_days})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("options_chain", "get_volatility_analysis", result, elapsed)
@@ -704,9 +664,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._options_chain_server.list_tools()
-        get_exp = tools["get_expirations"]
-        result = get_exp.fn(ticker=ticker)
+        result = await _call_tool(self._options_chain_server, "get_expirations", {"ticker": ticker})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("options_chain", "get_expirations", result, elapsed)
@@ -735,9 +693,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._options_chain_server.list_tools()
-        analyze = tools["analyze_strategy"]
-        result = analyze.fn(legs=legs, spot_price=spot_price)
+        result = await _call_tool(self._options_chain_server, "analyze_strategy", {"legs": legs, "spot_price": spot_price})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("options_chain", "analyze_strategy", result, elapsed)
@@ -765,9 +721,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._trading_sim_server.list_tools()
-        create = tools["create_portfolio"]
-        result = create.fn(starting_cash=starting_cash, portfolio_id=portfolio_id)
+        result = await _call_tool(self._trading_sim_server, "create_portfolio", {"starting_cash": starting_cash, "portfolio_id": portfolio_id})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("trading_sim", "create_portfolio", result, elapsed)
@@ -805,19 +759,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._trading_sim_server.list_tools()
-        execute = tools["execute_trade"]
-        result = execute.fn(
-            portfolio_id=portfolio_id,
-            ticker=ticker,
-            strike=strike,
-            expiration=expiration,
-            option_type=option_type,
-            action=action,
-            quantity=quantity,
-            order_type=order_type,
-            limit_price=limit_price,
-        )
+        result = await _call_tool(self._trading_sim_server, "execute_trade", {"portfolio_id": portfolio_id, "ticker": ticker, "strike": strike, "expiration": expiration, "option_type": option_type, "action": action, "quantity": quantity, "order_type": order_type, "limit_price": limit_price})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("trading_sim", "execute_trade", result, elapsed)
@@ -836,9 +778,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._trading_sim_server.list_tools()
-        get_port = tools["get_portfolio"]
-        result = get_port.fn(portfolio_id=portfolio_id)
+        result = await _call_tool(self._trading_sim_server, "get_portfolio", {"portfolio_id": portfolio_id})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("trading_sim", "get_portfolio", result, elapsed)
@@ -864,13 +804,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._trading_sim_server.list_tools()
-        close = tools["close_position"]
-        result = close.fn(
-            portfolio_id=portfolio_id,
-            position_id=position_id,
-            quantity=quantity,
-        )
+        result = await _call_tool(self._trading_sim_server, "close_position", {"portfolio_id": portfolio_id, "position_id": position_id, "quantity": quantity})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("trading_sim", "close_position", result, elapsed)
@@ -894,9 +828,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._trading_sim_server.list_tools()
-        advance = tools["advance_time"]
-        result = advance.fn(portfolio_id=portfolio_id, days=days)
+        result = await _call_tool(self._trading_sim_server, "advance_time", {"portfolio_id": portfolio_id, "days": days})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("trading_sim", "advance_time", result, elapsed)
@@ -915,9 +847,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._trading_sim_server.list_tools()
-        report = tools["get_pnl_report"]
-        result = report.fn(portfolio_id=portfolio_id)
+        result = await _call_tool(self._trading_sim_server, "get_pnl_report", {"portfolio_id": portfolio_id})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("trading_sim", "get_pnl_report", result, elapsed)
@@ -933,9 +863,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._trading_sim_server.list_tools()
-        list_port = tools["list_portfolios"]
-        result = list_port.fn()
+        result = await _call_tool(self._trading_sim_server, "list_portfolios", {})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("trading_sim", "list_portfolios", result, elapsed)
@@ -964,9 +892,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._risk_metrics_server.list_tools()
-        calc_greeks = tools["calculate_portfolio_greeks"]
-        result = calc_greeks.fn(positions=positions)
+        result = await _call_tool(self._risk_metrics_server, "calculate_portfolio_greeks", {"positions": positions})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("risk_metrics", "calculate_portfolio_greeks", result, elapsed)
@@ -996,15 +922,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._risk_metrics_server.list_tools()
-        calc_var = tools["calculate_var"]
-        result = calc_var.fn(
-            returns=returns,
-            confidence_level=confidence_level,
-            horizon_days=horizon_days,
-            portfolio_value=portfolio_value,
-            method=method,
-        )
+        result = await _call_tool(self._risk_metrics_server, "calculate_var", {"returns": returns, "confidence_level": confidence_level, "horizon_days": horizon_days, "portfolio_value": portfolio_value, "method": method})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("risk_metrics", "calculate_var", result, elapsed)
@@ -1026,9 +944,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._risk_metrics_server.list_tools()
-        calc_dd = tools["calculate_max_drawdown"]
-        result = calc_dd.fn(portfolio_values=portfolio_values)
+        result = await _call_tool(self._risk_metrics_server, "calculate_max_drawdown", {"portfolio_values": portfolio_values})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("risk_metrics", "calculate_max_drawdown", result, elapsed)
@@ -1052,9 +968,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._risk_metrics_server.list_tools()
-        calc_returns = tools["calculate_risk_adjusted_returns"]
-        result = calc_returns.fn(returns=returns, risk_free_rate=risk_free_rate)
+        result = await _call_tool(self._risk_metrics_server, "calculate_risk_adjusted_returns", {"returns": returns, "risk_free_rate": risk_free_rate})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("risk_metrics", "calculate_risk_adjusted_returns", result, elapsed)
@@ -1081,9 +995,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._risk_metrics_server.list_tools()
-        stress = tools["stress_test"]
-        result = stress.fn(positions=positions, scenarios=scenarios)
+        result = await _call_tool(self._risk_metrics_server, "stress_test", {"positions": positions, "scenarios": scenarios})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("risk_metrics", "stress_test", result, elapsed)
@@ -1111,14 +1023,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._risk_metrics_server.list_tools()
-        attr = tools["pnl_attribution"]
-        result = attr.fn(
-            position=position,
-            spot_change=spot_change,
-            vol_change=vol_change,
-            time_decay_days=time_decay_days,
-        )
+        result = await _call_tool(self._risk_metrics_server, "pnl_attribution", {"position": position, "spot_change": spot_change, "vol_change": vol_change, "time_decay_days": time_decay_days})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("risk_metrics", "pnl_attribution", result, elapsed)
@@ -1150,14 +1055,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._web_search_server.list_tools()
-        search = tools["web_search"]
-        result = search.fn(
-            query=query,
-            search_depth=search_depth,
-            max_results=max_results,
-            include_answer=include_answer,
-        )
+        result = await _call_tool(self._web_search_server, "web_search", {"query": query, "search_depth": search_depth, "max_results": max_results, "include_answer": include_answer})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("web_search", "web_search", result, elapsed)
@@ -1183,13 +1081,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._web_search_server.list_tools()
-        search = tools["search_financial_news"]
-        result = search.fn(
-            company=company,
-            topic=topic,
-            max_results=max_results,
-        )
+        result = await _call_tool(self._web_search_server, "search_financial_news", {"company": company, "topic": topic, "max_results": max_results})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("web_search", "search_financial_news", result, elapsed)
@@ -1215,13 +1107,7 @@ class MCPToolkit:
         import time
         start = time.time()
 
-        tools = await self._web_search_server.list_tools()
-        search = tools["search_earnings_info"]
-        result = search.fn(
-            ticker=ticker,
-            quarter=quarter,
-            year=year,
-        )
+        result = await _call_tool(self._web_search_server, "search_earnings_info", {"ticker": ticker, "quarter": quarter, "year": year})
 
         elapsed = int((time.time() - start) * 1000)
         self._record_call("web_search", "search_earnings_info", result, elapsed)

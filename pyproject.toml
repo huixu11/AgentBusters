@@ -47,7 +47,7 @@ dependencies = [
     "uvicorn==0.38.0",
     "sqlalchemy==2.0.35",
     # MCP Protocol Support
-    "fastmcp==2.0.0",
+    "fastmcp>=2.14.0",  # Requires >=2.14.0 for get_tools() dict API
     # HuggingFace datasets for dynamic benchmark retrieval
     "datasets==4.0.0",  # Requires >=4.0.0 to fix dataclass compatibility issues
     "huggingface-hub==1.0.0",  # Ensure compatible version with datasets
