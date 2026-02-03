@@ -61,7 +61,7 @@ def create_web_search_server(
     if TAVILY_AVAILABLE and _api_key:
         _client = TavilyClient(api_key=_api_key)
 
-    @mcp.tool
+    @mcp.tool()
     def web_search(
         query: str,
         search_depth: str = "basic",
@@ -137,7 +137,7 @@ def create_web_search_server(
                 total_results=0,
             )
 
-    @mcp.tool
+    @mcp.tool()
     def search_financial_news(
         company: str,
         topic: str = "",
@@ -185,7 +185,7 @@ def create_web_search_server(
             include_domains=finance_domains,
         )
 
-    @mcp.tool
+    @mcp.tool()
     def search_earnings_info(
         ticker: str,
         quarter: str = "",
@@ -218,7 +218,7 @@ def create_web_search_server(
             include_answer=True,
         )
 
-    @mcp.tool
+    @mcp.tool()
     def search_sec_filings_news(
         ticker: str,
         filing_type: str = "",

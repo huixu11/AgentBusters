@@ -97,7 +97,7 @@ def create_risk_metrics_server(
     mcp = FastMCP(name)
     _risk_free_rate = 0.0525  # 5.25% annual
 
-    @mcp.tool
+    @mcp.tool()
     def calculate_portfolio_greeks(
         positions: list[dict],
     ) -> dict[str, Any]:
@@ -184,7 +184,7 @@ def create_risk_metrics_server(
         except Exception as e:
             return {"error": str(e)}
 
-    @mcp.tool
+    @mcp.tool()
     def calculate_var(
         portfolio_value: float,
         returns: list[float] | None = None,
@@ -278,7 +278,7 @@ def create_risk_metrics_server(
         except Exception as e:
             return {"error": str(e)}
 
-    @mcp.tool
+    @mcp.tool()
     def calculate_max_drawdown(
         portfolio_values: list[float],
         dates: list[str] | None = None,
@@ -349,7 +349,7 @@ def create_risk_metrics_server(
         except Exception as e:
             return {"error": str(e)}
 
-    @mcp.tool
+    @mcp.tool()
     def calculate_risk_adjusted_returns(
         returns: list[float],
         risk_free_rate: float | None = None,
@@ -427,7 +427,7 @@ def create_risk_metrics_server(
         except Exception as e:
             return {"error": str(e)}
 
-    @mcp.tool
+    @mcp.tool()
     def stress_test(
         positions: list[dict],
         scenarios: list[dict] | None = None,
@@ -553,7 +553,7 @@ def create_risk_metrics_server(
         except Exception as e:
             return {"error": str(e)}
 
-    @mcp.tool
+    @mcp.tool()
     def pnl_attribution(
         position: dict,
         start_underlying: float,

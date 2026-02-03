@@ -248,7 +248,7 @@ def create_options_chain_server(
             return _simulation_date.date()
         return date.today()
 
-    @mcp.tool
+    @mcp.tool()
     def get_options_chain(
         ticker: str,
         expiration: str | None = None,
@@ -378,7 +378,7 @@ def create_options_chain_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def calculate_option_price(
         ticker: str,
         strike: float,
@@ -455,7 +455,7 @@ def create_options_chain_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def calculate_historical_option_price(
         ticker: str,
         strike: float,
@@ -542,7 +542,7 @@ def create_options_chain_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def get_volatility_analysis(ticker: str) -> dict[str, Any]:
         """
         Get volatility analysis for a ticker.
@@ -602,7 +602,7 @@ def create_options_chain_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def get_expirations(ticker: str) -> dict[str, Any]:
         """
         Get all available expiration dates for a ticker's options.
@@ -641,7 +641,7 @@ def create_options_chain_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def analyze_strategy(
         ticker: str,
         legs: list[dict],

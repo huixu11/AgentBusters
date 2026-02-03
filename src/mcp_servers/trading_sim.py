@@ -205,7 +205,7 @@ def create_trading_sim_server(
         except Exception:
             return 0, 0, 0
 
-    @mcp.tool
+    @mcp.tool()
     def create_portfolio(
         portfolio_id: str | None = None,
         starting_cash: float | None = None,
@@ -238,7 +238,7 @@ def create_trading_sim_server(
             "message": f"Portfolio created with ${cash:,.2f}",
         }
 
-    @mcp.tool
+    @mcp.tool()
     def execute_trade(
         portfolio_id: str,
         ticker: str,
@@ -509,7 +509,7 @@ def create_trading_sim_server(
             created_at=portfolio.created_at.isoformat(),
         ).model_dump()
 
-    @mcp.tool
+    @mcp.tool()
     def get_portfolio(portfolio_id: str) -> dict[str, Any]:
         """
         Get current portfolio state with all positions and P&L.
@@ -522,7 +522,7 @@ def create_trading_sim_server(
         """
         return _get_portfolio_state(portfolio_id)
 
-    @mcp.tool
+    @mcp.tool()
     def close_position(
         portfolio_id: str,
         position_id: str | None = None,
@@ -576,7 +576,7 @@ def create_trading_sim_server(
             quantity=qty,
         )
 
-    @mcp.tool
+    @mcp.tool()
     def advance_time(
         portfolio_id: str,
         days: int = 1,
@@ -662,7 +662,7 @@ def create_trading_sim_server(
             "portfolio": _get_portfolio_state(portfolio_id),
         }
 
-    @mcp.tool
+    @mcp.tool()
     def get_pnl_report(
         portfolio_id: str,
         include_trades: bool = True,
@@ -713,7 +713,7 @@ def create_trading_sim_server(
             "simulation_date": get_current_date().isoformat(),
         }
 
-    @mcp.tool
+    @mcp.tool()
     def list_portfolios() -> dict[str, Any]:
         """
         List all portfolios.

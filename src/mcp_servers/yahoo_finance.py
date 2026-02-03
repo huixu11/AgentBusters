@@ -157,7 +157,7 @@ def create_yahoo_finance_server(
         except Exception as e:
             return [{"error": str(e), "ticker": ticker}]
 
-    @mcp.tool
+    @mcp.tool()
     def get_financials(
         ticker: str,
         statement_type: str = "income",
@@ -216,7 +216,7 @@ def create_yahoo_finance_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def get_key_statistics(ticker: str) -> dict[str, Any]:
         """
         Get key statistics and valuation metrics.
@@ -255,7 +255,7 @@ def create_yahoo_finance_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def get_analyst_estimates(ticker: str) -> dict[str, Any]:
         """
         Get analyst estimates and recommendations.
@@ -296,7 +296,7 @@ def create_yahoo_finance_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def get_earnings(ticker: str) -> dict[str, Any]:
         """
         Get earnings history and estimates.
@@ -346,7 +346,7 @@ def create_yahoo_finance_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def compare_stocks(tickers: list[str], metric: str = "pe_ratio") -> list[dict[str, Any]]:
         """
         Compare multiple stocks on a specific metric.
