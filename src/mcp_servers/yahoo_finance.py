@@ -84,7 +84,7 @@ def create_yahoo_finance_server(
         else:
             return df[df.index <= _simulation_date]
 
-    @mcp.tool
+    @mcp.tool()
     def get_quote(ticker: str) -> dict[str, Any]:
         """
         Get current stock quote and basic info.
@@ -117,7 +117,7 @@ def create_yahoo_finance_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def get_historical_prices(
         ticker: str,
         period: str = "1y",

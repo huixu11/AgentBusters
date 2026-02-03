@@ -76,7 +76,7 @@ def create_edgar_server(
         except ValueError:
             return True
 
-    @mcp.tool
+    @mcp.tool()
     def get_filing(
         ticker: str,
         form_type: str,
@@ -131,7 +131,7 @@ def create_edgar_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker, "form_type": form_type}
 
-    @mcp.tool
+    @mcp.tool()
     def get_filing_section(
         ticker: str,
         form_type: str,
