@@ -104,6 +104,11 @@ class EvaluatorLLMConfig:
         temperature=0.0,
         max_tokens=1000,
     ))
+    options: EvaluatorModelConfig = field(default_factory=lambda: EvaluatorModelConfig(
+        model="gpt-4o-mini",  # Fast for numerical extraction
+        temperature=0.0,  # Deterministic for reproducibility
+        max_tokens=800,
+    ))
 
     # Default fallback
     default: EvaluatorModelConfig = field(default_factory=lambda: EvaluatorModelConfig(

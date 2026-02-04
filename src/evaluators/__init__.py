@@ -14,12 +14,6 @@ Dataset-specific evaluators:
 - OptionsEvaluator: Options trading task assessment
 """
 
-from evaluators.macro import MacroEvaluator
-from evaluators.fundamental import FundamentalEvaluator
-from evaluators.execution import ExecutionEvaluator
-from evaluators.cost_tracker import CostTracker, LLMCallRecord
-from evaluators.options import OptionsEvaluator, OptionsScore, OPTIONS_CATEGORIES
-
 # Core evaluators (require structlog and other dependencies)
 _core_evaluators_available = False
 try:
@@ -27,13 +21,17 @@ try:
     from evaluators.fundamental import FundamentalEvaluator
     from evaluators.execution import ExecutionEvaluator
     from evaluators.cost_tracker import CostTracker, LLMCallRecord
+    from evaluators.options import OptionsEvaluator, OptionsScore, OPTIONS_CATEGORIES
     _core_evaluators_available = True
-except ImportError:
+except ImportError as e:
     MacroEvaluator = None
     FundamentalEvaluator = None
     ExecutionEvaluator = None
     CostTracker = None
     LLMCallRecord = None
+    OptionsEvaluator = None
+    OptionsScore = None
+    OPTIONS_CATEGORIES = []
 
 # Dataset-specific evaluators (minimal dependencies)
 from evaluators.base import BaseDatasetEvaluator, EvalResult

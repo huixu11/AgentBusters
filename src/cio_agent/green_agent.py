@@ -1172,51 +1172,64 @@ class GreenAgent:
                     # Options Alpha Challenge evaluation
                     from cio_agent.models import AgentResponse
                     from datetime import datetime, timezone
+                    
+                    try:
+                        # Import OptionsEvaluator explicitly to avoid module resolution issues
+                        from evaluators.options import OptionsEvaluator
+                        
+                        # Map string category to TaskCategory enum
+                        category_map = {
+                            "Options Pricing": TaskCategory.OPTIONS_PRICING,
+                            "Greeks Analysis": TaskCategory.GREEKS_ANALYSIS,
+                            "Strategy Construction": TaskCategory.STRATEGY_CONSTRUCTION,
+                            "Volatility Trading": TaskCategory.VOLATILITY_TRADING,
+                            "P&L Attribution": TaskCategory.PNL_ATTRIBUTION,
+                            "Risk Management": TaskCategory.RISK_MANAGEMENT,
+                            "Copy Trading": TaskCategory.COPY_TRADING,
+                            "Race to 10M": TaskCategory.RACE_TO_10M,
+                            "Strategy Defense": TaskCategory.STRATEGY_DEFENSE,
+                        }
+                        task_category = category_map.get(example.category, TaskCategory.OPTIONS_PRICING)
 
-                    # Map string category to TaskCategory enum
-                    category_map = {
-                        "Options Pricing": TaskCategory.OPTIONS_PRICING,
-                        "Greeks Analysis": TaskCategory.GREEKS_ANALYSIS,
-                        "Strategy Construction": TaskCategory.STRATEGY_CONSTRUCTION,
-                        "Volatility Trading": TaskCategory.VOLATILITY_TRADING,
-                        "P&L Attribution": TaskCategory.PNL_ATTRIBUTION,
-                        "Risk Management": TaskCategory.RISK_MANAGEMENT,
-                        "Copy Trading": TaskCategory.COPY_TRADING,
-                        "Race to 10M": TaskCategory.RACE_TO_10M,
-                        "Strategy Defense": TaskCategory.STRATEGY_DEFENSE,
-                    }
-                    task_category = category_map.get(example.category, TaskCategory.OPTIONS_PRICING)
+                        # Extract ticker from metadata if available
+                        ticker = example.metadata.get("ticker", "SPY")
 
-                    # Extract ticker from metadata if available
-                    ticker = example.metadata.get("ticker", "SPY")
+                        # Create a FABTask for the evaluator
+                        fab_task = FABTask(
+                            question_id=example.example_id,
+                            category=task_category,
+                            difficulty=TaskDifficulty.MEDIUM,
+                            question=example.question,
+                            ticker=ticker,
+                            fiscal_year=2025,
+                            simulation_date=datetime.now(timezone.utc),
+                            ground_truth=GroundTruth(
+                                macro_thesis=example.answer,
+                                key_themes=[example.category],
+                            ),
+                            rubric=TaskRubric(criteria=[], penalty_conditions=[]),
+                        )
 
-                    # Create a FABTask for the evaluator
-                    fab_task = FABTask(
-                        question_id=example.example_id,
-                        category=task_category,
-                        difficulty=TaskDifficulty.MEDIUM,
-                        question=example.question,
-                        ticker=ticker,
-                        fiscal_year=2025,
-                        simulation_date=datetime.now(timezone.utc),
-                        ground_truth=GroundTruth(
-                            macro_thesis=example.answer,
-                            key_themes=[example.category],
-                        ),
-                        rubric=TaskRubric(criteria=[], penalty_conditions=[]),
-                    )
+                        # Create AgentResponse
+                        agent_response = AgentResponse(
+                            agent_id="purple_agent",
+                            task_id=example.example_id,
+                            analysis=response,
+                            recommendation=self._extract_recommendation(response),
+                        )
 
-                    # Create AgentResponse
-                    agent_response = AgentResponse(
-                        agent_id="purple_agent",
-                        task_id=example.example_id,
-                        analysis=response,
-                        recommendation=self._extract_recommendation(response),
-                    )
-
-                    # Initialize OptionsEvaluator with the task
-                    options_evaluator = OptionsEvaluator(task=fab_task)
-                    options_score = await options_evaluator.score(agent_response)
+                        # Initialize OptionsEvaluator with the task
+                        options_evaluator = OptionsEvaluator(task=fab_task)
+                        options_score = await options_evaluator.score(agent_response)
+                    except ImportError as ie:
+                        logger.error(f"Failed to import OptionsEvaluator: {ie}")
+                        raise RuntimeError(f"OptionsEvaluator import failed: {ie}") from ie
+                    except NameError as ne:
+                        logger.error(f"NameError in options evaluation: {ne}")
+                        # Log detailed error for debugging
+                        import traceback
+                        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+                        raise RuntimeError(f"Module resolution error in options evaluation: {ne}") from ne
 
                     # Options scores are already on 0-100 scale - don't normalize here
                     # The unified scorer handles 0-100 scale for options
@@ -1257,10 +1270,15 @@ class GreenAgent:
                     if scenario_seed is None:
                         scenario_seed = stable_seed(scenario_seed_base, example.example_id)
 
+                    # Check if detailed interaction recording is enabled
+                    # Set RECORD_INTERACTIONS=1 in .env to save Green/Purple message exchanges
+                    record_interactions = os.environ.get("RECORD_INTERACTIONS", "0").lower() in ("1", "true", "yes")
+                    
                     crypto_result = await crypto_evaluator.evaluate_scenario(
                         scenario_meta=scenario_meta,
                         purple_agent_url=purple_agent_url,
                         seed=scenario_seed,
+                        record_interactions=record_interactions,
                     )
 
                     if "error" in crypto_result:
@@ -1302,6 +1320,12 @@ class GreenAgent:
                                 "meta": crypto_result["meta"]["score"],
                             },
                         }
+                        # Include detailed interactions if recorded
+                        if "interactions" in crypto_result.get("baseline", {}):
+                            result["interactions"] = crypto_result["baseline"]["interactions"]
+                        if "trades" in crypto_result.get("baseline", {}):
+                            result["trades"] = crypto_result["baseline"]["trades"]
+                        
                         result["is_correct"] = crypto_result["final_score"] >= 70
                         result["feedback"] = (
                             f"Final score {crypto_result['final_score']:.2f} "
