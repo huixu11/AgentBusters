@@ -773,6 +773,15 @@ python src/cio_agent/a2a_server.py --host 0.0.0.0 --port 9109 \
 By default, question text is truncated to 200 characters.  
 Use `--store-question --no-truncate-question` to keep full question text in results.
 
+**Expected answer storage:**
+```bash
+python src/cio_agent/a2a_server.py --host 0.0.0.0 --port 9109 \
+  --eval-config config/eval_config.yaml \
+  --store-expected --no-truncate-expected
+```
+By default, expected answer text is truncated to 100 characters.  
+Use `--store-expected --no-truncate-expected` to keep full expected answers in results.
+
 The agents will automatically load `.env` on startup. Alternatively, you can use `export` commands instead of `.env` file.
 
 ### Environment Variables Reference
