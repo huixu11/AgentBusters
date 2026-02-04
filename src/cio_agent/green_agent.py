@@ -859,7 +859,7 @@ class GreenAgent:
 
         lines.append("\n--- END REFERENCE FILES ---\n")
 
-        logger.info(f"Formatted {len(reference_files)} reference file URLs for Purple Agent")
+        logger.debug(f"Formatted {len(reference_files)} reference file URLs for Purple Agent")
         return "\n".join(lines)
 
     def _convert_synthetic_to_tasks(self, num_tasks: int) -> list[FABTask]:
@@ -1105,7 +1105,7 @@ class GreenAgent:
                             reference_info = self._format_reference_files_for_agent(example.metadata)
                             if reference_info:
                                 message = example.question + reference_info
-                                logger.info(f"Added reference file URLs to GDPVal task (Purple Agent will fetch on demand)")
+                                logger.debug(f"Added reference file URLs to GDPVal task (Purple Agent will fetch on demand)")
                         except Exception as e:
                             logger.warning(f"Failed to format reference files for {example.example_id}: {e}")
 
