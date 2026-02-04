@@ -368,7 +368,7 @@ Return JSON:
             if data and "total_score" in data:
                 score = float(data["total_score"])
                 feedback = data.get("feedback", "LLM evaluation completed.")
-                logger.info(
+                logger.debug(
                     "llm_qualitative_eval",
                     task_id=self.task.question_id,
                     score=score,
@@ -621,7 +621,7 @@ Return JSON:
                     data.gamma = self._extract_greek_value(combined, "gamma")
                     data.theta = self._extract_greek_value(combined, "theta")
                     data.vega = self._extract_greek_value(combined, "vega")
-                    logger.info(
+                    logger.debug(
                         "greeks_extracted",
                         task_id=self.task.question_id,
                         method="regex",
@@ -636,7 +636,7 @@ Return JSON:
                     data.gamma = llm_gamma if llm_gamma is not None else self._extract_greek_value(combined, "gamma")
                     data.theta = llm_theta if llm_theta is not None else self._extract_greek_value(combined, "theta")
                     data.vega = llm_vega if llm_vega is not None else self._extract_greek_value(combined, "vega")
-                    logger.info(
+                    logger.debug(
                         "greeks_extracted",
                         task_id=self.task.question_id,
                         method="llm+regex",
@@ -651,7 +651,7 @@ Return JSON:
                 data.gamma = self._extract_greek_value(combined, "gamma")
                 data.theta = self._extract_greek_value(combined, "theta")
                 data.vega = self._extract_greek_value(combined, "vega")
-                logger.info(
+                logger.debug(
                     "greeks_extracted",
                     task_id=self.task.question_id,
                     method="regex",
@@ -997,8 +997,8 @@ Return JSON:
         pnl_score, pnl_feedback = await self._verify_pnl_accuracy(extracted, response)
         greeks_score, greeks_feedback = await self._verify_greeks_accuracy(extracted, response)
         
-        # Log Greeks score
-        logger.info(
+        # Log Greeks score (debug level to avoid noise in batch scoring)
+        logger.debug(
             "greeks_score",
             task_id=self.task.question_id,
             score=greeks_score,
@@ -1028,7 +1028,7 @@ Return JSON:
             all_feedback.append(f"Missing: {', '.join(missing[:3])}.")
         combined_feedback = " ".join(f for f in all_feedback if f)
 
-        logger.info(
+        logger.debug(
             "options_evaluation",
             task_id=self.task.question_id,
             category=self.task.category.value,
@@ -1090,7 +1090,7 @@ Return JSON:
         
         is_quantitative = category in quantitative_categories or has_numerical
         
-        logger.info(
+        logger.debug(
             "hybrid_evaluation_start",
             task_id=question_id,
             category=category.value if hasattr(category, 'value') else str(category),
@@ -1188,7 +1188,7 @@ Return JSON:
             strategy_score = llm_score
             risk_score = llm_score
         
-        logger.info(
+        logger.debug(
             "hybrid_evaluation_complete",
             task_id=question_id,
             final_score=final_score,
