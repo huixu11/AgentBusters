@@ -208,7 +208,35 @@ def main():
         type=int,
         help="Maximum characters for expected answer when truncation is enabled (default: 100)"
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable DEBUG level logging for detailed evaluation output (Greeks extraction, LLM calls, etc.)"
+    )
     args = parser.parse_args()
+
+    # Configure logging level
+    if args.debug:
+        import structlog
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
+        # Also configure structlog for debug output
+        structlog.configure(
+            wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG),
+        )
+        print("DEBUG logging enabled")
+    else:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        )
+        # Suppress verbose third-party library logs
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        logging.getLogger("a2a.client.card_resolver").setLevel(logging.WARNING)
+        logging.getLogger("a2a").setLevel(logging.WARNING)
 
     # Validate configuration
     eval_config = None

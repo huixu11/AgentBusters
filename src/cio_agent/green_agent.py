@@ -1312,8 +1312,11 @@ class GreenAgent:
                             recommendation=self._extract_recommendation(response),
                         )
 
-                        # Initialize OptionsEvaluator with the task
-                        options_evaluator = OptionsEvaluator(task=fab_task)
+                        # Initialize OptionsEvaluator with the task and LLM client
+                        options_evaluator = OptionsEvaluator(
+                            task=fab_task,
+                            llm_client=self.llm_client,
+                        )
                         options_score = await options_evaluator.score(agent_response)
                     except ImportError as ie:
                         logger.error(f"Failed to import OptionsEvaluator: {ie}")
