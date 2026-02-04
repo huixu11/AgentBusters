@@ -66,6 +66,9 @@ class GreenAgentExecutor(AgentExecutor):
         store_question: bool = False,
         truncate_question: Optional[bool] = None,
         question_max_chars: Optional[int] = None,
+        store_expected: bool = False,
+        truncate_expected: Optional[bool] = None,
+        expected_max_chars: Optional[int] = None,
     ):
         """
         Initialize the executor.
@@ -89,6 +92,9 @@ class GreenAgentExecutor(AgentExecutor):
             store_question: Whether to store full question text in results
             truncate_question: Optional override to truncate question text
             question_max_chars: Optional max length for question text
+            store_expected: Whether to store full expected answer in results
+            truncate_expected: Optional override to truncate expected answer
+            expected_max_chars: Optional max length for expected answer
         """
         self.agents: dict[str, GreenAgent] = {}  # context_id to agent instance
         self.eval_config = eval_config
@@ -107,6 +113,9 @@ class GreenAgentExecutor(AgentExecutor):
         self.store_question = store_question
         self.truncate_question = truncate_question
         self.question_max_chars = question_max_chars
+        self.store_expected = store_expected
+        self.truncate_expected = truncate_expected
+        self.expected_max_chars = expected_max_chars
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         """
@@ -174,6 +183,9 @@ class GreenAgentExecutor(AgentExecutor):
             store_question=self.store_question,
             truncate_question=self.truncate_question,
             question_max_chars=self.question_max_chars,
+            store_expected=self.store_expected,
+            truncate_expected=self.truncate_expected,
+            expected_max_chars=self.expected_max_chars,
         )
         self.agents[context_id] = agent
 

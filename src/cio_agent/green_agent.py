@@ -106,6 +106,9 @@ class GreenAgent:
         store_question: bool = False,
         truncate_question: Optional[bool] = None,
         question_max_chars: Optional[int] = None,
+        store_expected: bool = False,
+        truncate_expected: Optional[bool] = None,
+        expected_max_chars: Optional[int] = None,
     ):
         """
         Initialize the Green Agent.
@@ -130,6 +133,9 @@ class GreenAgent:
             store_question: Whether to store full question text in results
             truncate_question: Optional override to truncate question text
             question_max_chars: Optional max length for question text
+            store_expected: Whether to store full expected answer in results
+            truncate_expected: Optional override to truncate expected answer
+            expected_max_chars: Optional max length for expected answer
         """
         self.messenger = Messenger()
         self.evaluator = ComprehensiveEvaluator()
@@ -211,6 +217,18 @@ class GreenAgent:
         self.question_max_chars = question_max_chars
         if self.truncate_question and self.question_max_chars <= 0:
             self.question_max_chars = 200
+
+        # Expected answer storage options
+        self.store_expected = store_expected
+        if truncate_expected is None:
+            truncate_expected = True
+        self.truncate_expected = truncate_expected
+
+        if expected_max_chars is None:
+            expected_max_chars = 100
+        self.expected_max_chars = expected_max_chars
+        if self.truncate_expected and self.expected_max_chars <= 0:
+            self.expected_max_chars = 100
 
         if self.eval_config is not None:
             # Initialize evaluators for each dataset type present
@@ -725,6 +743,23 @@ class GreenAgent:
                 return question
             return question[:200] + "..."
 
+    def _format_expected(self, expected: str) -> str:
+        """Format expected answer text based on storage and truncation settings."""
+        if not expected:
+            return ""
+        if self.store_expected:
+            # User wants full expected stored
+            if not self.truncate_expected or self.expected_max_chars <= 0:
+                return expected
+            if len(expected) <= self.expected_max_chars:
+                return expected
+            return expected[: self.expected_max_chars] + "..."
+        else:
+            # Default behavior: always truncate to 100 chars
+            if len(expected) <= 100:
+                return expected
+            return expected[:100] + "..."
+
     def _extract_excel_content(self, content: bytes, filename: str) -> str:
         """Extract content from Excel file as formatted text."""
         import io
@@ -930,7 +965,7 @@ class GreenAgent:
                         "example_id": example.example_id,
                         "task_type": self.task_type,
                         "question": self._format_question(example.question),
-                        "expected": example.answer[:100] + "..." if len(example.answer) > 100 else example.answer,
+                        "expected": self._format_expected(example.answer),
                         "predicted": predicted_text,
                         "score": eval_result.score,
                         "is_correct": eval_result.is_correct,
@@ -961,7 +996,7 @@ class GreenAgent:
                         "example_id": example.example_id,
                         "category": example.category.value if hasattr(example.category, 'value') else str(example.category),
                         "question": self._format_question(example.question),
-                        "expected": example.answer[:100] + "..." if example.answer and len(example.answer) > 100 else (example.answer or ""),
+                        "expected": self._format_expected(example.answer or ""),
                         "predicted": predicted_text,
                         "score": eval_result.score,
                         "is_correct": eval_result.score >= 0.7,  # Threshold for correctness
@@ -1100,7 +1135,7 @@ class GreenAgent:
                         "task_type": example.task_type,
                         "language": example.language,
                         "question": self._format_question(example.question),
-                        "expected": example.answer[:100] + "..." if len(example.answer) > 100 else example.answer,
+                        "expected": self._format_expected(example.answer),
                         "predicted": predicted_text,
                         "score": eval_result.score,
                         "is_correct": eval_result.is_correct,
@@ -1130,7 +1165,7 @@ class GreenAgent:
                         "dataset_type": example.dataset_type,
                         "category": example.category,
                         "question": self._format_question(example.question),
-                        "expected": (example.answer[:100] + "...") if example.answer and len(example.answer) > 100 else (example.answer or ""),
+                        "expected": self._format_expected(example.answer or ""),
                         "predicted": predicted_text,
                         "score": eval_result.score,
                         "is_correct": eval_result.score >= 0.7,
@@ -1172,7 +1207,7 @@ class GreenAgent:
                         "dataset_type": example.dataset_type,
                         "category": example.category,
                         "question": self._format_question(example.question),
-                        "expected": example.answer[:100] + "..." if example.answer and len(example.answer) > 100 else (example.answer or ""),
+                        "expected": self._format_expected(example.answer or ""),
                         "predicted": predicted_text[:200] + "..." if len(predicted_text) > 200 else predicted_text,
                         "predicted_full": predicted_text,
                         "score": eval_result.score,
@@ -1297,7 +1332,7 @@ class GreenAgent:
                         "dataset_type": example.dataset_type,
                         "category": example.category,
                         "question": self._format_question(example.question),
-                        "expected": example.answer[:100] + "..." if len(example.answer) > 100 else example.answer,
+                        "expected": self._format_expected(example.answer),
                         "predicted": predicted_text,
                         "score": options_score.score,  # Keep as 0-100 scale
                         "is_correct": options_score.score >= 70,  # 70/100 threshold

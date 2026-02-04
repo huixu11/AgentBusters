@@ -187,6 +187,27 @@ def main():
         type=int,
         help="Maximum characters for question text when truncation is enabled (default: 200)"
     )
+    parser.add_argument(
+        "--store-expected",
+        action="store_true",
+        help="Store full expected answer in evaluation results"
+    )
+    expected_trunc_group = parser.add_mutually_exclusive_group()
+    expected_trunc_group.add_argument(
+        "--truncate-expected",
+        action="store_true",
+        help="Truncate expected answer in evaluation results (default)"
+    )
+    expected_trunc_group.add_argument(
+        "--no-truncate-expected",
+        action="store_true",
+        help="Do not truncate expected answer in evaluation results"
+    )
+    parser.add_argument(
+        "--expected-max-chars",
+        type=int,
+        help="Maximum characters for expected answer when truncation is enabled (default: 100)"
+    )
     args = parser.parse_args()
 
     # Validate configuration
@@ -228,6 +249,12 @@ def main():
         truncate_question = True
     elif args.no_truncate_question:
         truncate_question = False
+
+    truncate_expected = None
+    if args.truncate_expected:
+        truncate_expected = True
+    elif args.no_truncate_expected:
+        truncate_expected = False
 
     # Load synthetic questions if provided (legacy mode)
     synthetic_questions = None
@@ -340,6 +367,9 @@ def main():
             store_question=args.store_question,
             truncate_question=truncate_question,
             question_max_chars=args.question_max_chars,
+            store_expected=args.store_expected,
+            truncate_expected=truncate_expected,
+            expected_max_chars=args.expected_max_chars,
         ),
         task_store=task_store,
     )
