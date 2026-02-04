@@ -8,6 +8,7 @@ A2A server and performing direct analysis tasks.
 import os
 import asyncio
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -24,7 +25,16 @@ app = typer.Typer(
 console = Console()
 
 # Load environment variables from .env if present so CLI picks up LLM and keys
-load_dotenv()
+# Try multiple locations: current dir, script dir, parent dirs
+_env_loaded = load_dotenv()  # Default: search from current dir
+if not _env_loaded:
+    # Try to find .env relative to this script
+    _script_dir = Path(__file__).resolve().parent
+    for _search_dir in [_script_dir, _script_dir.parent, _script_dir.parent.parent]:
+        _env_file = _search_dir / ".env"
+        if _env_file.exists():
+            load_dotenv(_env_file)
+            break
 
 
 @app.command()
@@ -38,6 +48,9 @@ def serve(
     simulation_date: Optional[str] = typer.Option(
         None, "--simulation-date", "-d", help="Simulation date (YYYY-MM-DD)"
     ),
+    log_file: Optional[str] = typer.Option(
+        None, "--log-file", "-l", help="Log file path (logs to both file and console)"
+    ),
 ):
     """
     Start the Purple Agent A2A server.
@@ -47,6 +60,24 @@ def serve(
     """
     from purple_agent.server import create_app
     import uvicorn
+    import logging as _logging
+
+    # Configure logging to file if specified
+    if log_file:
+        # Set up file handler
+        file_handler = _logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setFormatter(_logging.Formatter('%(asctime)s [%(name)s] %(levelname)s: %(message)s'))
+        file_handler.setLevel(_logging.INFO)
+        
+        # Add file handler to root logger and purple_agent loggers
+        root_logger = _logging.getLogger()
+        root_logger.addHandler(file_handler)
+        
+        # Also capture uvicorn logs
+        for logger_name in ['uvicorn', 'uvicorn.access', 'uvicorn.error', 'purple_agent', 'purple_agent.executor']:
+            _logging.getLogger(logger_name).addHandler(file_handler)
+        
+        console.print(f"[dim]Logging to: {log_file}[/dim]")
 
     # Parse simulation date
     sim_date = None
@@ -61,13 +92,16 @@ def serve(
     openai_key = os.environ.get("OPENAI_API_KEY")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     model = os.environ.get("LLM_MODEL")
+    api_base = os.environ.get("OPENAI_API_BASE") or os.environ.get("OPENAI_BASE_URL")
     temperature = os.environ.get("PURPLE_LLM_TEMPERATURE", "0.0")
 
     # Create and run app
     console.print(Panel.fit(
         f"[bold blue]Purple Finance Agent[/bold blue]\n"
         f"Host: {host}:{port}\n"
-        f"LLM: {'OpenAI' if openai_key else 'Anthropic' if anthropic_key else 'None (fallback mode)'}\n"
+        f"Model: {model or 'gpt-4o (default)'}\n"
+        f"API Base: {api_base or 'https://api.openai.com/v1 (default)'}\n"
+        f"LLM Provider: {'OpenAI' if openai_key else 'Anthropic' if anthropic_key else 'None (fallback mode)'}\n"
         f"Temperature: {temperature} (set PURPLE_LLM_TEMPERATURE to change)\n"
         f"Simulation Date: {sim_date or 'None (live data)'}"
     ))

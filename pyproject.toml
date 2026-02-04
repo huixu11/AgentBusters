@@ -11,58 +11,60 @@ license = {text = "MIT"}
 authors = [
     {name = "AgentBusters Team"}
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "httpx>=0.25.0",
-    "pydantic>=2.12.5",
-    "openai>=2.16.0",  # Requires >=2.16.0 for httpx 0.28+ compatibility (proxy vs proxies)
-    "anthropic>=0.18.0",
-    "tiktoken>=0.5.0",
-    "numpy>=1.24.0",
-    "pandas>=2.0.0",
-    "scipy>=1.11.0",
-    "yfinance>=0.2.30",
-    "edgartools>=2.0.0",
-    "asyncio>=3.4.0",
-    "aiohttp>=3.9.0",
-    "python-dotenv>=1.0.0",
-    "structlog>=23.2.0",
-    "rich>=13.0.0",
-    "typer>=0.9.0",
+    "httpx==0.28.1",
+    "pydantic==2.12.5",
+    "openai==2.16.0",  # Requires >=2.16.0 for httpx 0.28+ compatibility (proxy vs proxies)
+    "anthropic==0.18.0",
+    "tiktoken==0.8.0",
+    "numpy>=1.26.4",
+    "pandas>=2.2.3",
+    "scipy>=1.14.0",  # Requires >=1.14.0 for Python 3.13 pre-built wheels
+    "yfinance==1.0",
+    "edgartools==2.34.2",
+    "asyncio==3.4.3",
+    "aiohttp==3.9.0",
+    "python-dotenv==1.2.1",
+    "structlog==24.4.0",
+    "rich==14.3.2",
+    "typer==0.15.2",
+    "click==8.1.8",
     # A2A Protocol Support (updated for AgentBeats compatibility)
     # Note: removed sql extra and aiosqlite to use in-memory task storage (avoids SQLite conflicts)
-    "a2a-sdk[http-server]>=0.3.20",
-    "fastapi>=0.100.0",
-    "uvicorn>=0.38.0",
-    "sqlalchemy>=2.0.0",
+    "a2a-sdk[http-server]==0.3.20",
+    "fastapi==0.115.12",
+    "uvicorn==0.38.0",
+    "sqlalchemy==2.0.35",
     # MCP Protocol Support
-    "fastmcp>=2.0.0",
+    "fastmcp>=2.14.0",  # Requires >=2.14.0 for get_tools() dict API
     # HuggingFace datasets for dynamic benchmark retrieval
-    "datasets>=4.0.0",  # Requires >=4.0.0 to fix dataclass compatibility issues
-    "huggingface-hub>=1.0.0",  # Ensure compatible version with datasets
-    # Tavily for web search MCP tools
-    "tavily-python>=0.3.0",
-    "openpyxl>=3.1.5",
-    "pypdf>=4.0.0",
+    "datasets==4.0.0",  # Requires >=4.0.0 to fix dataclass compatibility issues
+    "huggingface-hub==1.0.0",  # Ensure compatible version with datasets
+    # Tavily for web search MCP tools - fixed version to avoid dependency conflicts
+    "tavily-python==0.7.20",
+    "openpyxl==3.1.5",
+    "pypdf==4.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.1.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.5.0",
+    "pytest==8.3.3",
+    "pytest-asyncio==1.2.0",
+    "pytest-cov==4.1.0",
+    "black==23.12.1",
+    "ruff==0.6.9",
+    "mypy==1.5.0",
 ]
 
 [project.scripts]
@@ -89,3 +91,6 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: marks tests as integration tests (require external services)",
+]

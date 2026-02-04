@@ -1,0 +1,112 @@
+# Medium Scale Evaluation Configuration (100 tasks)
+# Use this for representative benchmarking with balanced dataset coverage
+
+name: "Medium Scale Evaluation"
+version: "1.0"
+
+datasets:
+  # BizFinBench English - Knowledge retrieval
+  - type: bizfinbench
+    task_types:
+      - event_logic_reasoning
+      - financial_quantitative_computation
+      - anomaly_information_tracing
+    languages: [en]
+    limit_per_task: 6
+    shuffle: false
+    weight: 1.0
+
+  # BizFinBench Chinese
+  - type: bizfinbench
+    task_types:
+      - event_logic_reasoning
+      - financial_data_description
+      - financial_report_analysis
+    languages: [cn]
+    limit_per_task: 4
+    shuffle: false
+    weight: 1.0
+
+  # PRBench - Multi-domain reasoning
+  - type: prbench
+    splits: [finance, legal]
+    limit: 15
+    shuffle: false
+    weight: 1.0
+
+  # Synthetic Questions - Analytical reasoning
+  - type: synthetic
+    path: data/synthetic_questions/questions.json
+    limit: 20
+    shuffle: false
+    weight: 1.0
+
+  # Options Trading
+  - type: options
+    path: data/options/questions.json
+    limit: 15
+    shuffle: false
+    weight: 1.0
+
+  # Crypto Trading - use eval_hidden data
+  - type: crypto
+    path: ../agentbusters-eval-data/crypto/eval_hidden
+    download_on_missing: false
+    limit: 6
+    shuffle: false
+    weight: 1.0
+    stride: 5           # Use every 5th bar (5-minute effective timeframe)
+    max_steps: 300       # 300 * 5 = 1500 minutes ≈ 25 hours
+    evaluation:
+      initial_balance: 10000.0
+      max_leverage: 3.0
+      trading_fee: 0.0004
+      price_noise_level: 0.001
+      slippage_range: [0.0002, 0.0010]
+      adversarial_injection_rate: 0.05
+      decision_interval: 10  # Decide every 10 steps (every 50 minutes)
+      funding_interval_hours: 8.0
+      score_weights:
+        baseline: 0.40
+        noisy: 0.30
+        adversarial: 0.20
+        meta: 0.10
+      metric_weights:
+        sharpe: 0.50
+        total_return: 0.25
+        max_drawdown: 0.15
+        win_rate: 0.10
+      meta_transforms:
+        - identity
+        - scale_1_1
+
+  # GDPVal - Professional tasks
+  - type: gdpval
+    hf_dataset: "openai/gdpval"
+    limit: 10
+    shuffle: false
+    weight: 1.0
+    include_reference_files: true
+
+sampling:
+  strategy: stratified
+  total_limit: 100
+  seed: 42
+
+llm_eval:
+  enabled: true
+  model: gpt-4o-mini
+  api_base: https://api.openai.com/v1
+  api_key: ${OPENAI_EVAL_API_KEY}
+  temperature: 0.0
+
+# Alternative: Use local vLLM for evaluation
+# llm_eval:
+#   enabled: true
+#   model: Qwen/Qwen3-32B
+#   api_base: http://localhost:8000/v1
+#   api_key: dummy
+#   temperature: 0.0
+
+debate: false
+timeout_seconds: 21600

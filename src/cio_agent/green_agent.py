@@ -44,7 +44,7 @@ from cio_agent.crypto_benchmark import CryptoTradingEvaluator, stable_seed
 from cio_agent.data_providers import BizFinBenchProvider, CsvFinanceDatasetProvider
 
 # Dataset-specific evaluators
-from evaluators import BizFinBenchEvaluator, PRBenchEvaluator, OptionsEvaluator
+from evaluators import BizFinBenchEvaluator, PRBenchEvaluator, OptionsEvaluator, SyntheticEvaluator
 from evaluators.gdpval_evaluator import GDPValEvaluator
 from evaluators.llm_utils import build_llm_client, should_use_llm
 
@@ -103,6 +103,9 @@ class GreenAgent:
         store_predicted: bool = False,
         truncate_predicted: Optional[bool] = None,
         predicted_max_chars: Optional[int] = None,
+        store_question: bool = False,
+        truncate_question: Optional[bool] = None,
+        question_max_chars: Optional[int] = None,
     ):
         """
         Initialize the Green Agent.
@@ -124,6 +127,9 @@ class GreenAgent:
             store_predicted: Whether to store predicted outputs in results
             truncate_predicted: Optional override to truncate predicted outputs
             predicted_max_chars: Optional max length for predicted outputs
+            store_question: Whether to store full question text in results
+            truncate_question: Optional override to truncate question text
+            question_max_chars: Optional max length for question text
         """
         self.messenger = Messenger()
         self.evaluator = ComprehensiveEvaluator()
@@ -164,6 +170,9 @@ class GreenAgent:
         config_llm_temp = (
             config_llm.temperature if config_llm and config_llm.temperature is not None else None
         )
+        # Extract api_base and api_key for separate evaluator API endpoint
+        config_api_base = config_llm.api_base if config_llm and config_llm.api_base else None
+        config_api_key = config_llm.api_key if config_llm and config_llm.api_key else None
 
         if eval_use_llm is not None:
             self.use_llm = eval_use_llm
@@ -176,7 +185,7 @@ class GreenAgent:
         self.llm_temperature = (
             eval_llm_temperature if eval_llm_temperature is not None else config_llm_temp
         )
-        self.llm_client = build_llm_client() if self.use_llm else None
+        self.llm_client = build_llm_client(api_base=config_api_base, api_key=config_api_key) if self.use_llm else None
         if self.use_llm and self.llm_client is None:
             self.use_llm = False
 
@@ -190,6 +199,18 @@ class GreenAgent:
         self.predicted_max_chars = predicted_max_chars
         if self.truncate_predicted and self.predicted_max_chars <= 0:
             self.predicted_max_chars = 200
+
+        # Question storage options
+        self.store_question = store_question
+        if truncate_question is None:
+            truncate_question = True
+        self.truncate_question = truncate_question
+
+        if question_max_chars is None:
+            question_max_chars = 200
+        self.question_max_chars = question_max_chars
+        if self.truncate_question and self.question_max_chars <= 0:
+            self.question_max_chars = 200
 
         if self.eval_config is not None:
             # Initialize evaluators for each dataset type present
@@ -212,7 +233,12 @@ class GreenAgent:
                     llm_model=self.llm_model,
                     llm_temperature=self.llm_temperature,
                 ),
-                "synthetic": self.evaluator,  # Use ComprehensiveEvaluator
+                "synthetic": SyntheticEvaluator(
+                    use_llm=self.use_llm,
+                    llm_client=self.llm_client,
+                    llm_model=self.llm_model,
+                    llm_temperature=self.llm_temperature,
+                ),
                 "options": None,  # Options use OptionsEvaluator initialized per-task
                 "crypto": None,  # Crypto uses CryptoTradingEvaluator initialized per-scenario
             }
@@ -684,6 +710,21 @@ class GreenAgent:
             return response
         return response[: self.predicted_max_chars] + "..."
 
+    def _format_question(self, question: str) -> str:
+        """Format question text based on storage and truncation settings."""
+        if self.store_question:
+            # User wants full question stored
+            if not self.truncate_question or self.question_max_chars <= 0:
+                return question
+            if len(question) <= self.question_max_chars:
+                return question
+            return question[: self.question_max_chars] + "..."
+        else:
+            # Default behavior: always truncate to 200 chars
+            if len(question) <= 200:
+                return question
+            return question[:200] + "..."
+
     def _extract_excel_content(self, content: bytes, filename: str) -> str:
         """Extract content from Excel file as formatted text."""
         import io
@@ -888,7 +929,7 @@ class GreenAgent:
                     result = {
                         "example_id": example.example_id,
                         "task_type": self.task_type,
-                        "question": example.question[:200] + "..." if len(example.question) > 200 else example.question,
+                        "question": self._format_question(example.question),
                         "expected": example.answer[:100] + "..." if len(example.answer) > 100 else example.answer,
                         "predicted": predicted_text,
                         "score": eval_result.score,
@@ -919,7 +960,7 @@ class GreenAgent:
                     result = {
                         "example_id": example.example_id,
                         "category": example.category.value if hasattr(example.category, 'value') else str(example.category),
-                        "question": example.question[:200] + "..." if len(example.question) > 200 else example.question,
+                        "question": self._format_question(example.question),
                         "expected": example.answer[:100] + "..." if example.answer and len(example.answer) > 100 else (example.answer or ""),
                         "predicted": predicted_text,
                         "score": eval_result.score,
@@ -1008,6 +1049,7 @@ class GreenAgent:
             
             try:
                 response = ""
+                tool_calls_raw = []  # Initialize tool_calls for this example
                 if example.dataset_type != "crypto":
                     # Build message with reference file URLs for GDPVal
                     # Purple Agent will use fetch_reference_file tool to download files as needed
@@ -1028,6 +1070,8 @@ class GreenAgent:
                         new_conversation=True,
                         timeout=self.eval_config.timeout_seconds if self.eval_config else 300,
                     )
+                    # Get tool calls from the last response
+                    tool_calls_raw = self.messenger.get_last_tool_calls()
                 predicted_text = self._format_predicted(response)
                 
                 # Get appropriate evaluator (options handled specially below)
@@ -1055,7 +1099,7 @@ class GreenAgent:
                         "dataset_type": example.dataset_type,
                         "task_type": example.task_type,
                         "language": example.language,
-                        "question": example.question[:200] + "..." if len(example.question) > 200 else example.question,
+                        "question": self._format_question(example.question),
                         "expected": example.answer[:100] + "..." if len(example.answer) > 100 else example.answer,
                         "predicted": predicted_text,
                         "score": eval_result.score,
@@ -1085,7 +1129,7 @@ class GreenAgent:
                         "example_id": example.example_id,
                         "dataset_type": example.dataset_type,
                         "category": example.category,
-                        "question": example.question[:200] + "..." if len(example.question) > 200 else example.question,
+                        "question": self._format_question(example.question),
                         "expected": (example.answer[:100] + "...") if example.answer and len(example.answer) > 100 else (example.answer or ""),
                         "predicted": predicted_text,
                         "score": eval_result.score,
@@ -1106,27 +1150,48 @@ class GreenAgent:
                                 result[key] = eval_result.details.get(key)
                     
                 elif example.dataset_type == "synthetic":
-                    # Synthetic questions use recommendation extraction
-                    extracted = self._extract_recommendation(response)
-                    expected = self._extract_recommendation(example.answer) if example.answer else ""
-
-                    is_correct = extracted.lower() == expected.lower() if expected else False
-
+                    # Synthetic questions: Use rubric-based LLM evaluation
+                    # Extract rubric and ground truth from metadata
+                    rubric = example.metadata.get("rubric") if example.metadata else None
+                    ground_truth_value = example.metadata.get("ground_truth_value") if example.metadata else None
+                    calculation_steps = example.metadata.get("calculation_steps") if example.metadata else None
+                    
+                    eval_result = evaluator.evaluate(
+                        predicted=response,
+                        expected=example.answer or "",
+                        question=example.question,
+                        rubric=rubric,
+                        ground_truth_value=ground_truth_value,
+                        calculation_steps=calculation_steps,
+                        category=example.category,
+                    )
+                    
+                    # Build result dict
                     result = {
                         "example_id": example.example_id,
                         "dataset_type": example.dataset_type,
                         "category": example.category,
-                        "question": example.question[:200] + "..." if len(example.question) > 200 else example.question,
-                        "expected": expected,
-                        "predicted": extracted,
+                        "question": self._format_question(example.question),
+                        "expected": example.answer[:100] + "..." if example.answer and len(example.answer) > 100 else (example.answer or ""),
+                        "predicted": predicted_text[:200] + "..." if len(predicted_text) > 200 else predicted_text,
                         "predicted_full": predicted_text,
-                        "score": 1.0 if is_correct else 0.0,
-                        "is_correct": is_correct,
-                        "feedback": f"Extracted: {extracted}, Expected: {expected}",
+                        "score": eval_result.score,
+                        "is_correct": eval_result.score >= 0.7,
+                        "feedback": eval_result.feedback,
                     }
-                    result["llm_used"] = False
-                    result["sub_scores"] = {}
-                    eval_result = type('obj', (object,), {'score': result['score']})()
+                    
+                    # Add detailed component scores if available
+                    sub_scores: dict[str, float] = {}
+                    if eval_result.details:
+                        result["llm_used"] = eval_result.details.get("llm_used", False)
+                        if "component_scores" in eval_result.details:
+                            for comp_name, comp_data in eval_result.details["component_scores"].items():
+                                sub_scores[comp_name] = comp_data.get("score", 0.0)
+                        if "llm_raw_output" in eval_result.details:
+                            result["llm_raw_output"] = eval_result.details["llm_raw_output"]
+                    else:
+                        result["llm_used"] = False
+                    result["sub_scores"] = sub_scores
 
                 elif example.dataset_type == "gdpval":
                     # GDPVal: Open-ended professional tasks (LLM-as-judge)
@@ -1144,7 +1209,7 @@ class GreenAgent:
                         "dataset_type": example.dataset_type,
                         "occupation": example.task_type,
                         "sector": example.category,
-                        "question": example.question[:200] + "..." if len(example.question) > 200 else example.question,
+                        "question": self._format_question(example.question),
                         "predicted": predicted_text,
                         "score": eval_result.score,
                         "is_correct": eval_result.score >= 0.7,  # 70% threshold
@@ -1166,51 +1231,64 @@ class GreenAgent:
                     # Options Alpha Challenge evaluation
                     from cio_agent.models import AgentResponse
                     from datetime import datetime, timezone
+                    
+                    try:
+                        # Import OptionsEvaluator explicitly to avoid module resolution issues
+                        from evaluators.options import OptionsEvaluator
+                        
+                        # Map string category to TaskCategory enum
+                        category_map = {
+                            "Options Pricing": TaskCategory.OPTIONS_PRICING,
+                            "Greeks Analysis": TaskCategory.GREEKS_ANALYSIS,
+                            "Strategy Construction": TaskCategory.STRATEGY_CONSTRUCTION,
+                            "Volatility Trading": TaskCategory.VOLATILITY_TRADING,
+                            "P&L Attribution": TaskCategory.PNL_ATTRIBUTION,
+                            "Risk Management": TaskCategory.RISK_MANAGEMENT,
+                            "Copy Trading": TaskCategory.COPY_TRADING,
+                            "Race to 10M": TaskCategory.RACE_TO_10M,
+                            "Strategy Defense": TaskCategory.STRATEGY_DEFENSE,
+                        }
+                        task_category = category_map.get(example.category, TaskCategory.OPTIONS_PRICING)
 
-                    # Map string category to TaskCategory enum
-                    category_map = {
-                        "Options Pricing": TaskCategory.OPTIONS_PRICING,
-                        "Greeks Analysis": TaskCategory.GREEKS_ANALYSIS,
-                        "Strategy Construction": TaskCategory.STRATEGY_CONSTRUCTION,
-                        "Volatility Trading": TaskCategory.VOLATILITY_TRADING,
-                        "P&L Attribution": TaskCategory.PNL_ATTRIBUTION,
-                        "Risk Management": TaskCategory.RISK_MANAGEMENT,
-                        "Copy Trading": TaskCategory.COPY_TRADING,
-                        "Race to 10M": TaskCategory.RACE_TO_10M,
-                        "Strategy Defense": TaskCategory.STRATEGY_DEFENSE,
-                    }
-                    task_category = category_map.get(example.category, TaskCategory.OPTIONS_PRICING)
+                        # Extract ticker from metadata if available
+                        ticker = example.metadata.get("ticker", "SPY")
 
-                    # Extract ticker from metadata if available
-                    ticker = example.metadata.get("ticker", "SPY")
+                        # Create a FABTask for the evaluator
+                        fab_task = FABTask(
+                            question_id=example.example_id,
+                            category=task_category,
+                            difficulty=TaskDifficulty.MEDIUM,
+                            question=example.question,
+                            ticker=ticker,
+                            fiscal_year=2025,
+                            simulation_date=datetime.now(timezone.utc),
+                            ground_truth=GroundTruth(
+                                macro_thesis=example.answer,
+                                key_themes=[example.category],
+                            ),
+                            rubric=TaskRubric(criteria=[], penalty_conditions=[]),
+                        )
 
-                    # Create a FABTask for the evaluator
-                    fab_task = FABTask(
-                        question_id=example.example_id,
-                        category=task_category,
-                        difficulty=TaskDifficulty.MEDIUM,
-                        question=example.question,
-                        ticker=ticker,
-                        fiscal_year=2025,
-                        simulation_date=datetime.now(timezone.utc),
-                        ground_truth=GroundTruth(
-                            macro_thesis=example.answer,
-                            key_themes=[example.category],
-                        ),
-                        rubric=TaskRubric(criteria=[], penalty_conditions=[]),
-                    )
+                        # Create AgentResponse
+                        agent_response = AgentResponse(
+                            agent_id="purple_agent",
+                            task_id=example.example_id,
+                            analysis=response,
+                            recommendation=self._extract_recommendation(response),
+                        )
 
-                    # Create AgentResponse
-                    agent_response = AgentResponse(
-                        agent_id="purple_agent",
-                        task_id=example.example_id,
-                        analysis=response,
-                        recommendation=self._extract_recommendation(response),
-                    )
-
-                    # Initialize OptionsEvaluator with the task
-                    options_evaluator = OptionsEvaluator(task=fab_task)
-                    options_score = await options_evaluator.score(agent_response)
+                        # Initialize OptionsEvaluator with the task
+                        options_evaluator = OptionsEvaluator(task=fab_task)
+                        options_score = await options_evaluator.score(agent_response)
+                    except ImportError as ie:
+                        logger.error(f"Failed to import OptionsEvaluator: {ie}")
+                        raise RuntimeError(f"OptionsEvaluator import failed: {ie}") from ie
+                    except NameError as ne:
+                        logger.error(f"NameError in options evaluation: {ne}")
+                        # Log detailed error for debugging
+                        import traceback
+                        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+                        raise RuntimeError(f"Module resolution error in options evaluation: {ne}") from ne
 
                     # Options scores are already on 0-100 scale - don't normalize here
                     # The unified scorer handles 0-100 scale for options
@@ -1218,7 +1296,7 @@ class GreenAgent:
                         "example_id": example.example_id,
                         "dataset_type": example.dataset_type,
                         "category": example.category,
-                        "question": example.question[:200] + "..." if len(example.question) > 200 else example.question,
+                        "question": self._format_question(example.question),
                         "expected": example.answer[:100] + "..." if len(example.answer) > 100 else example.answer,
                         "predicted": predicted_text,
                         "score": options_score.score,  # Keep as 0-100 scale
@@ -1251,10 +1329,15 @@ class GreenAgent:
                     if scenario_seed is None:
                         scenario_seed = stable_seed(scenario_seed_base, example.example_id)
 
+                    # Check if detailed interaction recording is enabled
+                    # Set RECORD_INTERACTIONS=1 in .env to save Green/Purple message exchanges
+                    record_interactions = os.environ.get("RECORD_INTERACTIONS", "0").lower() in ("1", "true", "yes")
+                    
                     crypto_result = await crypto_evaluator.evaluate_scenario(
                         scenario_meta=scenario_meta,
                         purple_agent_url=purple_agent_url,
                         seed=scenario_seed,
+                        record_interactions=record_interactions,
                     )
 
                     if "error" in crypto_result:
@@ -1296,6 +1379,12 @@ class GreenAgent:
                                 "meta": crypto_result["meta"]["score"],
                             },
                         }
+                        # Include detailed interactions if recorded
+                        if "interactions" in crypto_result.get("baseline", {}):
+                            result["interactions"] = crypto_result["baseline"]["interactions"]
+                        if "trades" in crypto_result.get("baseline", {}):
+                            result["trades"] = crypto_result["baseline"]["trades"]
+                        
                         result["is_correct"] = crypto_result["final_score"] >= 70
                         result["feedback"] = (
                             f"Final score {crypto_result['final_score']:.2f} "
@@ -1308,7 +1397,7 @@ class GreenAgent:
                     result = {
                         "example_id": example.example_id,
                         "dataset_type": example.dataset_type,
-                        "question": example.question[:200] + "..." if len(example.question) > 200 else example.question,
+                        "question": self._format_question(example.question),
                         "predicted": predicted_text,
                         "score": 0.0,  # No evaluator, no score
                         "is_correct": False,
@@ -1330,6 +1419,10 @@ class GreenAgent:
                         result["rebuttal_preview"] = rebuttal[:100] + "..." if len(rebuttal) > 100 else rebuttal
                     except Exception:
                         result["rebuttal_received"] = False
+                
+                # Add tool_calls if available (only if store_predicted is enabled to save space)
+                if self.store_predicted and tool_calls_raw:
+                    result["tool_calls"] = tool_calls_raw
                 
                 all_results.append(result)
                 

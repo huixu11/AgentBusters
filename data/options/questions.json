@@ -8,8 +8,8 @@
       "difficulty": "medium",
       "question": "Calculate the fair value of a European call option on AAPL with the following parameters: Current stock price $175, Strike price $180, Risk-free rate 5%, Volatility 25%, Time to expiration 30 days. Use the Black-Scholes model.",
       "ground_truth": {
-        "call_price": 2.47,
-        "put_price": 6.74,
+        "call_price": 3.22,
+        "put_price": 7.48,
         "method": "Black-Scholes"
       },
       "rubric": {
@@ -33,10 +33,10 @@
       "difficulty": "hard",
       "question": "NVDA is trading at $450. A 45-day $460 call is priced at $18.50 with implied volatility of 45%. The risk-free rate is 5.25%. Is this option fairly priced, overpriced, or underpriced? Calculate the theoretical value and explain the discrepancy.",
       "ground_truth": {
-        "theoretical_price": 17.82,
+        "theoretical_price": 25.18,
         "market_price": 18.50,
-        "assessment": "slightly overpriced",
-        "discrepancy_pct": 3.8
+        "assessment": "underpriced",
+        "discrepancy_pct": -26.5
       },
       "rubric": {
         "components": [
@@ -60,10 +60,10 @@
       "difficulty": "medium",
       "question": "Calculate the Greeks (Delta, Gamma, Theta, Vega) for a TSLA $250 call option with 21 days to expiration. TSLA is currently at $245, volatility is 55%, and the risk-free rate is 5%. Explain what each Greek tells us about the position.",
       "ground_truth": {
-        "delta": 0.42,
-        "gamma": 0.025,
-        "theta": -0.35,
-        "vega": 0.28
+        "delta": 0.474,
+        "gamma": 0.012,
+        "theta": -0.321,
+        "vega": 0.234
       },
       "rubric": {
         "components": [
@@ -204,6 +204,7 @@
           {"name": "risk_awareness", "weight": 0.15, "description": "Awareness of risks"}
         ]
       },
+      "ticker": "SPY",
       "vix_spot": 28,
       "vix_futures": 24,
       "spy_iv": 0.26
@@ -243,7 +244,7 @@
       "difficulty": "medium",
       "question": "You have a $100,000 options trading account. You want to sell a put spread on QQQ (current price $380). The $370/$360 put spread can be sold for $2.50 credit. Calculate the max loss per spread, position size for 2% account risk, and total buying power required.",
       "ground_truth": {
-        "max_loss_per_spread": 7.50,
+        "max_loss_per_spread": 750,
         "risk_per_spread": 750,
         "max_account_risk": 2000,
         "position_size": 2,
@@ -338,6 +339,7 @@
           {"name": "feasibility", "weight": 0.2, "description": "Honest feasibility assessment"}
         ]
       },
+      "ticker": "SPY",
       "starting_capital": 100000,
       "target_capital": 10000000,
       "time_horizon_months": 12

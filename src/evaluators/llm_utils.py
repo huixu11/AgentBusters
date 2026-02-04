@@ -104,6 +104,11 @@ class EvaluatorLLMConfig:
         temperature=0.0,
         max_tokens=1000,
     ))
+    options: EvaluatorModelConfig = field(default_factory=lambda: EvaluatorModelConfig(
+        model="gpt-4o-mini",  # Fast for numerical extraction
+        temperature=0.0,  # Deterministic for reproducibility
+        max_tokens=800,
+    ))
 
     # Default fallback
     default: EvaluatorModelConfig = field(default_factory=lambda: EvaluatorModelConfig(
@@ -273,9 +278,11 @@ def get_llm_temperature() -> float:
 def build_llm_client(
     existing: Any | None = None,
     provider: Optional[str] = None,
+    api_base: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> Optional[Any]:
     """
-    Build an LLM client from environment variables.
+    Build an LLM client from environment variables or explicit config.
 
     Supports OpenAI-compatible and Anthropic clients.
 
@@ -283,36 +290,47 @@ def build_llm_client(
         existing: If provided, returns this client directly
         provider: Optional provider override ("openai" or "anthropic").
                   If not specified, uses LLM_PROVIDER env var or defaults to "openai".
+        api_base: Optional API base URL override. If not provided, uses env vars.
+        api_key: Optional API key override. If not provided, uses env vars.
     """
     if existing is not None:
         return existing
 
     effective_provider = (provider or os.getenv("LLM_PROVIDER") or "openai").lower()
     if effective_provider == "anthropic":
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
+        effective_api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        if not effective_api_key:
             return None
         try:
             from anthropic import Anthropic
         except Exception:
             return None
-        return Anthropic(api_key=api_key)
+        return Anthropic(api_key=effective_api_key)
 
     # Default to OpenAI
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
+    # Priority: explicit api_key > OPENAI_EVAL_API_KEY > OPENAI_API_KEY
+    effective_api_key = api_key or os.getenv("OPENAI_EVAL_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not effective_api_key:
         return None
-    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+    # Priority: explicit api_base > OPENAI_EVAL_API_BASE > OPENAI_BASE_URL > OPENAI_API_BASE
+    effective_base_url = (
+        api_base 
+        or os.getenv("OPENAI_EVAL_API_BASE")  # New: dedicated evaluator base URL
+        or os.getenv("OPENAI_BASE_URL") 
+        or os.getenv("OPENAI_API_BASE")
+    )
     try:
         from openai import OpenAI
     except Exception:
         return None
-    return OpenAI(api_key=api_key, base_url=base_url)
+    return OpenAI(api_key=effective_api_key, base_url=effective_base_url)
 
 
 def build_llm_client_for_evaluator(
     evaluator_name: str,
     existing: Any | None = None,
+    api_base: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> Optional[Any]:
     """
     Build an LLM client for a specific evaluator using its configured provider.
@@ -320,6 +338,8 @@ def build_llm_client_for_evaluator(
     Args:
         evaluator_name: Name of the evaluator (e.g., "macro", "gdpval")
         existing: If provided, returns this client directly
+        api_base: Optional API base URL from config
+        api_key: Optional API key from config
 
     Returns:
         LLM client configured for the evaluator's provider
@@ -328,7 +348,7 @@ def build_llm_client_for_evaluator(
         return existing
 
     provider = get_provider_for_evaluator(evaluator_name)
-    return build_llm_client(provider=provider)
+    return build_llm_client(provider=provider, api_base=api_base, api_key=api_key)
 
 
 def call_llm(
@@ -338,11 +358,31 @@ def call_llm(
     system_prompt: Optional[str] = None,
     temperature: float = 0.0,
     max_tokens: int = 512,
+    model_context_limit: int = 32768,
 ) -> str:
     """
     Call an OpenAI- or Anthropic-style client and return text content.
+    
+    Automatically adjusts max_tokens if the prompt is too long to avoid context overflow.
     """
     model = model or get_llm_model()
+    
+    # Estimate token count (rough: ~4 chars per token for English)
+    estimated_prompt_tokens = (len(prompt) + len(system_prompt or "")) // 3
+    
+    # Dynamically adjust max_tokens to fit within context limit
+    available_tokens = model_context_limit - estimated_prompt_tokens - 100  # 100 token buffer
+    if available_tokens < max_tokens:
+        if available_tokens < 50:
+            # Not enough room even for minimal response
+            raise ValueError(
+                f"Prompt too long ({estimated_prompt_tokens} est. tokens) for model context limit "
+                f"({model_context_limit}). Available: {available_tokens} tokens."
+            )
+        max_tokens = max(50, available_tokens)
+        logger.debug(
+            f"Reduced max_tokens from requested to {max_tokens} due to context limit"
+        )
 
     if hasattr(client, "chat"):
         messages = []

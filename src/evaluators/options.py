@@ -6,8 +6,14 @@ Evaluates the quality of options trading responses including:
 - Greeks verification
 - Strategy quality scoring
 - Risk management discipline
+
+Supports hybrid evaluation:
+- Quantitative questions: LLM extracts values → Rule-based comparison
+- Qualitative questions: Full LLM evaluation
 """
 
+import json
+import re
 from typing import Any, Optional
 from dataclasses import dataclass
 
@@ -19,7 +25,21 @@ from cio_agent.models import (
     TaskCategory,
 )
 
+try:
+    from evaluators.llm_utils import (
+        build_llm_client_for_evaluator,
+        call_llm,
+        extract_json,
+        get_model_for_evaluator,
+    )
+    HAS_LLM_UTILS = True
+except ImportError:
+    HAS_LLM_UTILS = False
+
 logger = structlog.get_logger()
+
+# Evaluator name for LLM configuration
+EVALUATOR_NAME = "options"
 
 
 # Options trading categories requiring specialized evaluation
@@ -110,10 +130,246 @@ class OptionsEvaluator:
         self.task = task
         self.mcp_toolkit = mcp_toolkit
         self.llm_client = llm_client
+        self._llm_model = None
+        self._use_llm_extraction = True  # Enable LLM-based value extraction
+
+    # =========================================================================
+    # LLM Helper Methods
+    # =========================================================================
+
+    def _get_llm_client(self) -> Optional[Any]:
+        """Get or create LLM client for evaluation."""
+        if not HAS_LLM_UTILS:
+            return self.llm_client
+        if self.llm_client is None:
+            self.llm_client = build_llm_client_for_evaluator(EVALUATOR_NAME)
+        return self.llm_client
+
+    def _get_llm_model(self) -> str:
+        """Get model name for this evaluator."""
+        if self._llm_model is None and HAS_LLM_UTILS:
+            self._llm_model = get_model_for_evaluator(EVALUATOR_NAME)
+        return self._llm_model or "gpt-4o-mini"
+
+    async def _llm_extract_values(
+        self,
+        response_text: str,
+        ground_truth: dict,
+    ) -> tuple[dict, Optional[str]]:
+        """
+        Use LLM to extract numerical values from agent response.
+        
+        This is more robust than regex for handling varied formats like:
+        - "The theoretical price is approximately twenty-five dollars"
+        - "call ≈ $3.22"
+        - "Delta: 0.474 (positive, indicating bullish)"
+        
+        Args:
+            response_text: The agent's response text
+            ground_truth: Expected values to guide extraction
+            
+        Returns:
+            Tuple of (extracted_values_dict, error_message)
+        """
+        client = self._get_llm_client()
+        if not client:
+            return {}, "llm_client_unavailable"
+        
+        # Build extraction schema from ground_truth keys
+        fields = list(ground_truth.keys())
+        fields_str = ", ".join(fields)
+        
+        system_prompt = """You are a precise numerical value extractor for options trading analysis.
+Extract ONLY the specific numerical values mentioned in the response.
+Return null for any value not explicitly stated.
+Do NOT calculate or infer values - only extract what is explicitly written."""
+
+        prompt = f"""Extract these specific values from the candidate answer:
+Fields needed: {fields_str}
+
+CANDIDATE ANSWER:
+{response_text}
+
+Return a JSON object with these exact keys. Use null if a value is not found.
+For percentages, return as decimal (e.g., 7.8% → 7.8).
+For dollar amounts, return the number only (e.g., $25.18 → 25.18).
+
+Example output format:
+{{"theoretical_price": 25.18, "delta": 0.474, "assessment": "underpriced"}}
+"""
+
+        try:
+            raw = call_llm(
+                client=client,
+                prompt=prompt,
+                model=self._get_llm_model(),
+                system_prompt=system_prompt,
+                temperature=0.0,
+                max_tokens=500,
+            )
+            data = extract_json(raw)
+            if data:
+                logger.debug(
+                    "llm_extraction_success",
+                    task_id=self.task.question_id,
+                    extracted=data,
+                )
+                return data, None
+            return {}, "llm_invalid_json"
+        except Exception as e:
+            logger.warning(f"llm_extraction_failed: {e}")
+            return {}, f"llm_call_failed: {e}"
+
+    async def _llm_evaluate_qualitative(
+        self,
+        response_text: str,
+        ground_truth: dict,
+        rubric: list[dict],
+    ) -> tuple[float, str, Optional[str]]:
+        """
+        Use LLM to evaluate qualitative/strategic questions.
+        
+        For questions like strategy_002 (straddle analysis), vol_001 (IV trading),
+        defense_001 (strategy adjustment) where judgment is required.
+        
+        Args:
+            response_text: The agent's response
+            ground_truth: Expected answer components
+            rubric: Evaluation rubric with components and weights
+            
+        Returns:
+            Tuple of (score 0-100, feedback, error_message)
+        """
+        client = self._get_llm_client()
+        if not client:
+            return 50.0, "LLM unavailable for qualitative evaluation", "llm_client_unavailable"
+        
+        # Format rubric for prompt
+        rubric_str = "\n".join(
+            f"- {r['name']} ({r['weight']*100:.0f}%): {r['description']}"
+            for r in rubric
+        )
+        
+        # Format ground truth
+        gt_str = json.dumps(ground_truth, indent=2)
+        
+        system_prompt = """You are an expert options trading evaluator.
+Score the candidate's response against the rubric and reference answer.
+Be strict but fair. Award partial credit for partially correct answers.
+Focus on: correctness of reasoning, appropriate strategy selection, risk awareness."""
+
+        prompt = f"""REFERENCE ANSWER:
+{gt_str}
+
+RUBRIC:
+{rubric_str}
+
+CANDIDATE ANSWER:
+{response_text}
+
+Score each rubric component from 0-100, then compute weighted total.
+
+Return JSON:
+{{
+  "component_scores": {{"component_name": score, ...}},
+  "total_score": <weighted average 0-100>,
+  "feedback": "<brief explanation of score>"
+}}
+"""
+
+        try:
+            raw = call_llm(
+                client=client,
+                prompt=prompt,
+                model=self._get_llm_model(),
+                system_prompt=system_prompt,
+                temperature=0.0,
+                max_tokens=800,
+            )
+            data = extract_json(raw)
+            if data and "total_score" in data:
+                score = float(data["total_score"])
+                feedback = data.get("feedback", "LLM evaluation completed.")
+                logger.info(
+                    "llm_qualitative_eval",
+                    task_id=self.task.question_id,
+                    score=score,
+                    components=data.get("component_scores"),
+                )
+                return score, feedback, None
+            return 50.0, "LLM response parsing failed", "llm_invalid_json"
+        except Exception as e:
+            logger.warning(f"llm_qualitative_failed: {e}")
+            return 50.0, f"LLM evaluation error: {e}", f"llm_call_failed: {e}"
+
+    def _compare_values(
+        self,
+        extracted: dict,
+        ground_truth: dict,
+        tolerance: float = 0.10,
+    ) -> tuple[float, str]:
+        """
+        Rule-based comparison of extracted values against ground truth.
+        
+        Args:
+            extracted: Values extracted from response (via LLM or regex)
+            ground_truth: Expected values
+            tolerance: Relative tolerance for numerical comparison
+            
+        Returns:
+            Tuple of (score 0-100, feedback)
+        """
+        if not extracted or not ground_truth:
+            return 50.0, "Insufficient data for comparison"
+        
+        correct = 0
+        total = 0
+        feedback_parts = []
+        
+        for key, expected in ground_truth.items():
+            if key not in extracted or extracted[key] is None:
+                continue
+            
+            actual = extracted[key]
+            total += 1
+            
+            # Handle different value types
+            if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
+                # Numerical comparison with tolerance
+                if expected == 0:
+                    is_correct = abs(actual) < 0.01
+                else:
+                    pct_diff = abs(actual - expected) / abs(expected)
+                    is_correct = pct_diff <= tolerance
+                
+                if is_correct:
+                    correct += 1
+                    feedback_parts.append(f"{key}: ✓")
+                else:
+                    feedback_parts.append(f"{key}: ✗ (got {actual}, expected {expected})")
+                    
+            elif isinstance(expected, str) and isinstance(actual, str):
+                # String comparison (case-insensitive, partial match)
+                if expected.lower() in actual.lower() or actual.lower() in expected.lower():
+                    correct += 1
+                    feedback_parts.append(f"{key}: ✓")
+                else:
+                    feedback_parts.append(f"{key}: ✗")
+            else:
+                # Type mismatch or complex type
+                if str(expected).lower() == str(actual).lower():
+                    correct += 1
+        
+        if total == 0:
+            return 50.0, "No comparable values found"
+        
+        score = (correct / total) * 100
+        feedback = f"Matched {correct}/{total}: " + ", ".join(feedback_parts[:5])
+        
+        return score, feedback
 
     def _extract_numbers_from_text(self, text: str) -> list[float]:
         """Extract all numbers from text."""
-        import re
         # Match numbers including negatives, decimals, percentages
         pattern = r'-?\$?\d+(?:,\d{3})*(?:\.\d+)?%?'
         matches = re.findall(pattern, text)
@@ -127,6 +383,96 @@ class OptionsEvaluator:
             except ValueError:
                 continue
         return numbers
+
+    def _extract_greek_value(self, text: str, greek_name: str) -> Optional[float]:
+        """
+        Extract a Greek value from text using multiple patterns.
+        
+        Handles various formats:
+        - "Delta: 0.42"
+        - "delta = 0.42"
+        - "delta of 0.42"
+        - "delta is 0.42"
+        - "delta: -0.35"
+        - "**Delta**: 0.42"
+        - "Delta ≈ 0.42"
+        - "Δ = 0.42" (for delta)
+        - "The gamma is approximately 0.025"
+        
+        Args:
+            text: The text to search
+            greek_name: Name of the Greek (delta, gamma, theta, vega)
+            
+        Returns:
+            Extracted float value or None if not found
+        """
+        # Greek symbols mapping
+        greek_symbols = {
+            "delta": r"[Δδ]",
+            "gamma": r"[Γγ]",
+            "theta": r"[Θθ]",
+            "vega": r"[Vv]",  # Vega doesn't have a standard Greek letter
+        }
+        
+        name_pattern = greek_name.lower()
+        symbol_pattern = greek_symbols.get(name_pattern, "")
+        
+        # Multiple regex patterns to try, ordered by specificity
+        patterns = [
+            # Pattern 1: Greek name/symbol followed by separator and number
+            # Matches: "Delta: 0.42", "delta = -0.35", "Δ = 0.42"
+            rf'(?:\*\*)?{name_pattern}(?:\*\*)?[:\s=≈]+(-?\d+\.?\d*)',
+            
+            # Pattern 2: Greek name followed by "of" or "is" and number
+            # Matches: "delta of 0.42", "delta is -0.35"
+            rf'{name_pattern}\s+(?:of|is)\s+(-?\d+\.?\d*)',
+            
+            # Pattern 3: "The <greek> is approximately/around/about <number>"
+            # Matches: "The delta is approximately 0.48", "the gamma is around 0.025"
+            rf'(?:the\s+)?{name_pattern}\s+is\s+(?:approximately|around|about|roughly|nearly|~|≈)\s*(-?\d+\.?\d*)',
+            
+            # Pattern 4: "<greek> approximately/around <number>" without "is"
+            # Matches: "gamma around 0.025", "delta approximately 0.5"
+            rf'{name_pattern}\s+(?:approximately|around|about|roughly|nearly|~|≈)\s*(-?\d+\.?\d*)',
+            
+            # Pattern 5: Greek symbol pattern (if available)
+            rf'{symbol_pattern}[:\s=≈]+(-?\d+\.?\d*)' if symbol_pattern else None,
+            
+            # Pattern 6: Number followed by Greek name (less common)
+            # Matches: "0.42 delta", "-0.35 (delta)"
+            rf'(-?\d+\.?\d*)\s*\(?{name_pattern}\)?',
+            
+            # Pattern 7: Greek in parentheses with value
+            # Matches: "(delta: 0.42)", "(Δ=0.42)"
+            rf'\({name_pattern}[:\s=]+(-?\d+\.?\d*)\)',
+            
+            # Pattern 8: Bullet or list format
+            # Matches: "- Delta: 0.42", "• Delta = 0.42"
+            rf'[-•*]\s*(?:\*\*)?{name_pattern}(?:\*\*)?[:\s=]+(-?\d+\.?\d*)',
+            
+            # Pattern 9: Table-like format with pipes
+            # Matches: "| Delta | 0.42 |"
+            rf'\|\s*{name_pattern}\s*\|\s*(-?\d+\.?\d*)\s*\|',
+        ]
+        
+        for pattern in patterns:
+            if pattern is None:
+                continue
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    value = float(match.group(1))
+                    # Sanity check: Greeks typically have reasonable ranges
+                    # Delta: -1 to 1, Gamma: 0 to ~0.1, Theta: -inf to 0 (daily), Vega: 0 to ~1
+                    if name_pattern == "delta" and abs(value) > 100:
+                        continue  # Probably not a delta value
+                    if name_pattern == "gamma" and abs(value) > 10:
+                        continue  # Probably not a gamma value
+                    return value
+                except ValueError:
+                    continue
+        
+        return None
 
     def _extract_options_data(
         self,
@@ -167,28 +513,11 @@ class OptionsEvaluator:
                 data.strategy_name = strategy
                 break
 
-        # Extract Greeks using regex patterns
-        import re
-
-        # Delta
-        delta_match = re.search(r'delta[:\s]+(-?\d+\.?\d*)', combined)
-        if delta_match:
-            data.delta = float(delta_match.group(1))
-
-        # Gamma
-        gamma_match = re.search(r'gamma[:\s]+(-?\d+\.?\d*)', combined)
-        if gamma_match:
-            data.gamma = float(gamma_match.group(1))
-
-        # Theta
-        theta_match = re.search(r'theta[:\s]+(-?\d+\.?\d*)', combined)
-        if theta_match:
-            data.theta = float(theta_match.group(1))
-
-        # Vega
-        vega_match = re.search(r'vega[:\s]+(-?\d+\.?\d*)', combined)
-        if vega_match:
-            data.vega = float(vega_match.group(1))
+        # Extract Greeks using multiple regex patterns for robustness
+        data.delta = self._extract_greek_value(combined, "delta")
+        data.gamma = self._extract_greek_value(combined, "gamma")
+        data.theta = self._extract_greek_value(combined, "theta")
+        data.vega = self._extract_greek_value(combined, "vega")
 
         # Max profit
         profit_match = re.search(r'max(?:imum)?\s+profit[:\s]+\$?(-?\d+(?:,\d{3})*(?:\.\d+)?)', combined)
@@ -339,13 +668,28 @@ class OptionsEvaluator:
             score += 10
             feedback_parts.append("Limited Greeks analysis.")
         else:
-            # Check if Greeks mentioned without values
+            # Check if Greeks mentioned without values - improved detection
             analysis_lower = response.analysis.lower()
-            greek_terms = ["delta", "gamma", "theta", "vega"]
+            greek_terms = ["delta", "gamma", "theta", "vega", "rho"]
             mentioned = sum(1 for g in greek_terms if g in analysis_lower)
-            if mentioned >= 2:
-                score += 30
+            
+            # Also check for numeric values near Greek mentions
+            greek_with_numbers = 0
+            for greek in greek_terms:
+                # Look for Greek name followed by number within 20 characters
+                pattern = rf'{greek}[:\s=]{{0,10}}[-]?\d+\.?\d*'
+                if re.search(pattern, analysis_lower):
+                    greek_with_numbers += 1
+            
+            if greek_with_numbers >= 2:
+                score += 50  # Greeks calculated but extraction failed
+                feedback_parts.append("Greeks calculated but format not recognized.")
+            elif mentioned >= 3:
+                score += 30  # Greeks discussed conceptually
                 feedback_parts.append("Greeks discussed but values not extracted.")
+            elif mentioned >= 1:
+                score += 15  # Some Greeks awareness
+                feedback_parts.append("Limited Greeks discussion.")
             else:
                 feedback_parts.append("Missing Greeks analysis.")
 
@@ -504,6 +848,17 @@ class OptionsEvaluator:
         # Score each dimension
         pnl_score, pnl_feedback = await self._verify_pnl_accuracy(extracted, response)
         greeks_score, greeks_feedback = await self._verify_greeks_accuracy(extracted, response)
+        
+        # Debug logging for Greeks extraction
+        logger.debug(
+            "greeks_extraction_debug",
+            task_id=self.task.question_id,
+            extracted_delta=extracted.delta,
+            extracted_gamma=extracted.gamma,
+            extracted_theta=extracted.theta,
+            extracted_vega=extracted.vega,
+            greeks_score=greeks_score,
+        )
         strategy_score, strategy_feedback = await self._score_strategy_quality(extracted, response)
         risk_score, risk_feedback = await self._score_risk_management(extracted, response)
 
@@ -547,6 +902,161 @@ class OptionsEvaluator:
             strategy_quality=strategy_score,
             risk_management=risk_score,
             feedback=combined_feedback,
+        )
+
+    async def score_with_ground_truth(
+        self,
+        response: AgentResponse,
+        ground_truth: dict,
+        rubric: Optional[list[dict]] = None,
+    ) -> OptionsScore:
+        """
+        Score agent response using hybrid LLM+Rule evaluation against ground truth.
+        
+        This method:
+        1. Classifies question as quantitative or qualitative
+        2. For quantitative: Uses LLM to extract values, then rule-based comparison
+        3. For qualitative: Uses full LLM evaluation
+        
+        Args:
+            response: Agent's response to evaluate
+            ground_truth: Expected answer from questions.json
+            rubric: Optional rubric with scoring components
+            
+        Returns:
+            OptionsScore with detailed breakdown
+        """
+        response_text = f"{response.analysis}\n{response.recommendation}"
+        question_id = self.task.question_id
+        category = self.task.category
+        
+        # Classify question type
+        quantitative_categories = {
+            TaskCategory.OPTIONS_PRICING,
+            TaskCategory.GREEKS_ANALYSIS,
+            TaskCategory.PNL_ATTRIBUTION,
+        }
+        
+        # Check if ground_truth has numerical values
+        has_numerical = any(
+            isinstance(v, (int, float)) 
+            for v in ground_truth.values() 
+            if not isinstance(v, (list, dict))
+        )
+        
+        is_quantitative = category in quantitative_categories or has_numerical
+        
+        logger.info(
+            "hybrid_evaluation_start",
+            task_id=question_id,
+            category=category.value if hasattr(category, 'value') else str(category),
+            is_quantitative=is_quantitative,
+            use_llm=self._use_llm_extraction,
+        )
+        
+        if is_quantitative:
+            # === Quantitative: LLM Extract (if enabled) + Rule Compare ===
+            extracted = {}
+            
+            if self._use_llm_extraction:
+                extracted, extract_error = await self._llm_extract_values(
+                    response_text, ground_truth
+                )
+                
+                if extract_error:
+                    logger.warning(
+                        "llm_extraction_fallback",
+                        task_id=question_id,
+                        error=extract_error,
+                    )
+                    extracted = {}  # Force regex fallback
+            
+            # Fallback or primary regex extraction
+            if not extracted:
+                regex_extracted = self._extract_options_data(response)
+                extracted = {
+                    "delta": regex_extracted.delta,
+                    "gamma": regex_extracted.gamma,
+                    "theta": regex_extracted.theta,
+                    "vega": regex_extracted.vega,
+                    "max_profit": regex_extracted.max_profit,
+                    "max_loss": regex_extracted.max_loss,
+                }
+                # Also try to extract numbers that might match ground truth keys
+                all_numbers = self._extract_numbers_from_text(response_text)
+                for key, expected in ground_truth.items():
+                    if isinstance(expected, (int, float)) and key not in extracted:
+                        # Try to find a close match
+                        for num in all_numbers:
+                            if abs(num - expected) / abs(expected) < 0.05 if expected != 0 else abs(num) < 0.01:
+                                extracted[key] = num
+                                break
+            
+            # Rule-based comparison with appropriate tolerance
+            if category == TaskCategory.GREEKS_ANALYSIS:
+                tolerance = self.GREEKS_TOLERANCE
+            else:
+                tolerance = self.PRICE_TOLERANCE
+            
+            comparison_score, comparison_feedback = self._compare_values(
+                extracted, ground_truth, tolerance=tolerance
+            )
+            
+            # Also run traditional scoring for qualitative aspects
+            extracted_data = self._extract_options_data(response)
+            strategy_score, _ = await self._score_strategy_quality(extracted_data, response)
+            risk_score, _ = await self._score_risk_management(extracted_data, response)
+            
+            # Weight: 60% numerical accuracy, 20% strategy, 20% risk
+            final_score = (
+                comparison_score * 0.60 +
+                strategy_score * 0.20 +
+                risk_score * 0.20
+            )
+            
+            feedback = f"[Hybrid-Quant] {comparison_feedback}"
+        
+        else:
+            # === Qualitative: Full LLM Evaluation ===
+            rubric_list = rubric or [
+                {"name": "reasoning", "weight": 0.4, "description": "Sound logical reasoning"},
+                {"name": "strategy", "weight": 0.3, "description": "Appropriate strategy choice"},
+                {"name": "risk", "weight": 0.3, "description": "Risk awareness"},
+            ]
+            
+            llm_score, llm_feedback, llm_error = await self._llm_evaluate_qualitative(
+                response_text, ground_truth, rubric_list
+            )
+            
+            if llm_error:
+                # Fallback to traditional scoring
+                logger.warning(
+                    "llm_qualitative_fallback",
+                    task_id=question_id,
+                    error=llm_error,
+                )
+                return await self.score(response)
+            
+            final_score = llm_score
+            feedback = f"[Hybrid-Qual] {llm_feedback}"
+            comparison_score = llm_score
+            strategy_score = llm_score
+            risk_score = llm_score
+        
+        logger.info(
+            "hybrid_evaluation_complete",
+            task_id=question_id,
+            final_score=final_score,
+            is_quantitative=is_quantitative,
+        )
+        
+        return OptionsScore(
+            score=final_score,
+            pnl_accuracy=comparison_score if is_quantitative else final_score,
+            greeks_accuracy=comparison_score if is_quantitative else final_score,
+            strategy_quality=strategy_score,
+            risk_management=risk_score,
+            feedback=feedback,
         )
 
     @staticmethod

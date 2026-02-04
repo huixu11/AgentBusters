@@ -248,7 +248,7 @@ def create_options_chain_server(
             return _simulation_date.date()
         return date.today()
 
-    @mcp.tool
+    @mcp.tool()
     def get_options_chain(
         ticker: str,
         expiration: str | None = None,
@@ -282,16 +282,20 @@ def create_options_chain_server(
                 return {"error": f"No options available for {ticker}"}
 
             # Select expiration
-            if expiration is None:
+            if expiration is None or expiration.lower() in ("nearest", "next", "first"):
                 selected_exp = expirations[0]
             elif expiration in expirations:
                 selected_exp = expiration
             else:
                 # Find nearest expiration
-                target = datetime.strptime(expiration, "%Y-%m-%d").date()
-                selected_exp = min(expirations, key=lambda x: abs(
-                    datetime.strptime(x, "%Y-%m-%d").date() - target
-                ))
+                try:
+                    target = datetime.strptime(expiration, "%Y-%m-%d").date()
+                    selected_exp = min(expirations, key=lambda x: abs(
+                        datetime.strptime(x, "%Y-%m-%d").date() - target
+                    ))
+                except ValueError:
+                    # Invalid date format, use first available
+                    selected_exp = expirations[0]
 
             # Calculate days to expiry
             exp_date = datetime.strptime(selected_exp, "%Y-%m-%d").date()
@@ -322,6 +326,16 @@ def create_options_chain_server(
                     if iv is None or iv <= 0 or iv > 5:
                         iv = hist_vol
 
+                    # Safely convert volume and open_interest (handle NaN)
+                    volume_raw = row.get("volume", 0)
+                    open_interest_raw = row.get("openInterest", 0)
+                    
+                    # Handle NaN values
+                    if volume_raw is None or (isinstance(volume_raw, float) and math.isnan(volume_raw)):
+                        volume_raw = 0
+                    if open_interest_raw is None or (isinstance(open_interest_raw, float) and math.isnan(open_interest_raw)):
+                        open_interest_raw = 0
+                    
                     quote = {
                         "contract_symbol": row.get("contractSymbol", ""),
                         "ticker": ticker,
@@ -331,8 +345,8 @@ def create_options_chain_server(
                         "bid": float(row.get("bid", 0) or 0),
                         "ask": float(row.get("ask", 0) or 0),
                         "last_price": float(row.get("lastPrice", 0) or 0),
-                        "volume": int(row.get("volume", 0) or 0),
-                        "open_interest": int(row.get("openInterest", 0) or 0),
+                        "volume": int(volume_raw or 0),
+                        "open_interest": int(open_interest_raw or 0),
                         "implied_volatility": float(iv),
                         "in_the_money": bool(row.get("inTheMoney", False)),
                     }
@@ -378,7 +392,7 @@ def create_options_chain_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def calculate_option_price(
         ticker: str,
         strike: float,
@@ -386,6 +400,7 @@ def create_options_chain_server(
         option_type: Literal["call", "put"],
         volatility: float | None = None,
         underlying_price: float | None = None,
+        spot_price: float | None = None,  # Alias for underlying_price
     ) -> dict[str, Any]:
         """
         Calculate theoretical option price using Black-Scholes.
@@ -397,6 +412,7 @@ def create_options_chain_server(
             option_type: "call" or "put"
             volatility: Annual volatility (e.g., 0.30 for 30%). If None, uses historical.
             underlying_price: Current stock price. If None, fetches from market.
+            spot_price: Alias for underlying_price (for compatibility)
 
         Returns:
             Theoretical price and all Greeks
@@ -404,7 +420,9 @@ def create_options_chain_server(
         try:
             stock = yf.Ticker(ticker)
 
-            # Get underlying price
+            # Get underlying price (support spot_price alias)
+            if underlying_price is None and spot_price is not None:
+                underlying_price = spot_price
             if underlying_price is None:
                 info = stock.info
                 underlying_price = info.get("regularMarketPrice") or info.get("currentPrice", 0)
@@ -455,7 +473,7 @@ def create_options_chain_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def calculate_historical_option_price(
         ticker: str,
         strike: float,
@@ -542,8 +560,8 @@ def create_options_chain_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
-    def get_volatility_analysis(ticker: str) -> dict[str, Any]:
+    @mcp.tool()
+    def get_volatility_analysis(ticker: str, lookback_days: int = 30) -> dict[str, Any]:
         """
         Get volatility analysis for a ticker.
 
@@ -551,6 +569,7 @@ def create_options_chain_server(
 
         Args:
             ticker: Stock ticker symbol
+            lookback_days: Number of days for historical volatility calculation (default: 30)
 
         Returns:
             Volatility metrics including HV and IV
@@ -566,6 +585,7 @@ def create_options_chain_server(
             prices = hist["Close"].tolist()
 
             # Calculate historical volatility at different windows
+            hv_custom = calculate_historical_volatility(prices, lookback_days) if len(prices) > lookback_days else None
             hv_20 = calculate_historical_volatility(prices, 20)
             hv_60 = calculate_historical_volatility(prices, 60)
             hv_252 = calculate_historical_volatility(prices, 252) if len(prices) >= 253 else hv_60
@@ -589,7 +609,7 @@ def create_options_chain_server(
             except:
                 pass
 
-            return VolatilityData(
+            result = VolatilityData(
                 ticker=ticker,
                 current_iv=round(current_iv, 4) if current_iv else None,
                 historical_volatility_20d=round(hv_20, 4),
@@ -598,11 +618,17 @@ def create_options_chain_server(
                 iv_percentile=None,  # Would need historical IV data
                 iv_rank=None,
             ).model_dump()
+            
+            # Add custom lookback period volatility
+            if hv_custom is not None:
+                result[f"historical_volatility_{lookback_days}d"] = round(hv_custom, 4)
+            
+            return result
 
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def get_expirations(ticker: str) -> dict[str, Any]:
         """
         Get all available expiration dates for a ticker's options.
@@ -641,7 +667,7 @@ def create_options_chain_server(
         except Exception as e:
             return {"error": str(e), "ticker": ticker}
 
-    @mcp.tool
+    @mcp.tool()
     def analyze_strategy(
         ticker: str,
         legs: list[dict],

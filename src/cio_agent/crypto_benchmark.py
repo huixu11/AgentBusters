@@ -1285,12 +1285,14 @@ class CryptoTradingEvaluator:
         new_conversation: bool,
         seed: int,
         timeframe: Optional[str],
+        record_interactions: bool = False,
     ) -> dict[str, Any]:
         rng = random.Random(seed)
         simulator = TradingSimulator(config, rng)
         decision_interval = config.decision_interval
         last_price = None
         decision_errors = 0
+        interactions: list[dict] = []  # Store detailed interactions
 
         for idx, state in enumerate(states):
             ohlcv = state.get("ohlcv", {})
@@ -1350,9 +1352,28 @@ class CryptoTradingEvaluator:
                         timeout=self.timeout_seconds,
                     )
                     decision = _parse_decision(response, symbol=state.get("symbol", ""))
-                except Exception:
+                    
+                    # Record interaction if enabled
+                    if record_interactions:
+                        interactions.append({
+                            "step": idx,
+                            "timestamp": state.get("timestamp"),
+                            "sent_payload": payload,
+                            "raw_response": response,
+                            "parsed_decision": decision,
+                            "equity_before": simulator.cash + simulator.position_size * close_p,
+                        })
+                except Exception as e:
                     decision_errors += 1
                     decision = {"action": "HOLD", "size": 0.0}
+                    if record_interactions:
+                        interactions.append({
+                            "step": idx,
+                            "timestamp": state.get("timestamp"),
+                            "sent_payload": payload,
+                            "error": str(e),
+                            "parsed_decision": decision,
+                        })
             else:
                 decision = {"action": "HOLD", "size": 0.0}
 
@@ -1366,12 +1387,28 @@ class CryptoTradingEvaluator:
         metrics = self._compute_metrics(simulator.equity_curve, simulator.trades, timeframe)
         score = self._score_metrics(metrics, config)
 
-        return {
+        result = {
             "score": score,
             "metrics": metrics,
             "trade_count": len(simulator.trades),
             "decision_errors": decision_errors,
         }
+        
+        # Include interactions in result if recorded
+        if record_interactions and interactions:
+            result["interactions"] = interactions
+            result["trades"] = [
+                {
+                    "entry_price": t.entry_price,
+                    "exit_price": t.exit_price,
+                    "size": t.size,
+                    "pnl": t.pnl,
+                    "reason": t.reason,
+                }
+                for t in simulator.trades
+            ]
+        
+        return result
 
     def _compute_metrics(
         self,
@@ -1430,6 +1467,7 @@ class CryptoTradingEvaluator:
         scenario_meta: dict[str, Any],
         purple_agent_url: str,
         seed: int,
+        record_interactions: bool = False,
     ) -> dict[str, Any]:
         max_steps = scenario_meta.get("max_steps")
         stride = scenario_meta.get("stride", 1)
@@ -1461,6 +1499,7 @@ class CryptoTradingEvaluator:
             new_conversation=True,
             seed=seed,
             timeframe=timeframe,
+            record_interactions=record_interactions,  # Only record for baseline
         )
 
         noisy_states = _apply_price_noise(states, config.price_noise_level, random.Random(seed + 1))

@@ -370,6 +370,14 @@ class LLMEvaluationConfig(BaseModel):
         default=None,
         description="Sampling temperature override for LLM grading."
     )
+    api_base: Optional[str] = Field(
+        default=None,
+        description="API base URL for LLM grading (use for separate OpenAI endpoint)."
+    )
+    api_key: Optional[str] = Field(
+        default=None,
+        description="API key for LLM grading (use for separate OpenAI key). Supports ${ENV_VAR} syntax."
+    )
 
 
 class EvaluationConfig(BaseModel):
@@ -402,9 +410,23 @@ class EvaluationConfig(BaseModel):
 
     @classmethod
     def from_yaml(cls, path: Union[str, Path]) -> "EvaluationConfig":
-        """Load configuration from YAML file."""
-        with open(path, "r") as f:
-            data = yaml.safe_load(f)
+        """Load configuration from YAML file with environment variable substitution.
+        
+        Supports ${VAR_NAME} syntax for environment variable substitution.
+        Example: api_key: ${OPENAI_EVAL_API_KEY}
+        """
+        import re
+        
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        # Substitute ${VAR_NAME} with environment variable values
+        def replace_env_var(match):
+            var_name = match.group(1)
+            return os.getenv(var_name, "")
+        
+        content = re.sub(r'\$\{([^}]+)\}', replace_env_var, content)
+        data = yaml.safe_load(content)
         return cls.model_validate(data)
 
     @classmethod
@@ -655,11 +677,18 @@ class ConfigurableDatasetLoader:
 
         # Load dataset from HuggingFace
         logger.info(f"Loading GDPVal dataset from {config.hf_dataset}")
-        dataset = load_dataset(
-            config.hf_dataset,
-            cache_dir=config.cache_dir,
-            trust_remote_code=True,
-        )
+        try:
+            dataset = load_dataset(
+                config.hf_dataset,
+                cache_dir=config.cache_dir,
+            )
+        except TypeError:
+            # Fallback for older datasets versions that may require trust_remote_code
+            dataset = load_dataset(
+                config.hf_dataset,
+                cache_dir=config.cache_dir,
+                trust_remote_code=True,
+            )
 
         # GDPVal has a single 'train' split with 220 tasks
         data = dataset["train"]

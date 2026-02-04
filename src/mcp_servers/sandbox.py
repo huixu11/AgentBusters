@@ -44,6 +44,13 @@ ALLOWED_MODULES = {
     "datetime",
     "scipy", "scipy.stats",
     "statistics",
+    "json",  # Safe for serialization
+    "re",    # Regex for text processing
+    "collections",  # Counter, defaultdict, etc.
+    "itertools",  # Combinatorics
+    "functools",  # reduce, partial
+    "decimal",  # Precise decimal arithmetic
+    "fractions",  # Rational numbers
 }
 
 
@@ -153,7 +160,7 @@ def create_sandbox_server(
 
         return namespace
 
-    @mcp.tool
+    @mcp.tool()
     def execute_python(
         code: str,
         timeout: int | None = None,
@@ -219,7 +226,7 @@ def create_sandbox_server(
 
         return result.model_dump()
 
-    @mcp.tool
+    @mcp.tool()
     def calculate_financial_metric(
         metric: str,
         values: dict[str, float],
@@ -289,7 +296,7 @@ def create_sandbox_server(
         except Exception as e:
             return {"error": str(e), "metric": metric}
 
-    @mcp.tool
+    @mcp.tool()
     def analyze_time_series(
         data: list[float],
         operations: list[str],

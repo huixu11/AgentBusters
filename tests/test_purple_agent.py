@@ -147,6 +147,100 @@ print(f"CAGR: {growth_rate:.2%}")
         assert "std" in result
         assert "trend" in result
 
+    @pytest.mark.asyncio
+    async def test_calculate_option_price_local_computation(self, toolkit):
+        """Test that calculate_option_price uses local Black-Scholes computation."""
+        # Test basic call option
+        result = await toolkit.calculate_option_price(
+            spot_price=450.0,
+            strike_price=460.0,
+            days_to_expiry=45,
+            volatility=0.45,
+            risk_free_rate=0.0525,
+            option_type="call",
+        )
+
+        # Should return valid result without MCP server errors
+        assert "error" not in result
+        assert "price" in result
+        assert "delta" in result
+        assert "gamma" in result
+        assert "theta" in result
+        assert "vega" in result
+        assert "rho" in result
+        
+        # Verify price is reasonable (OTM call with high IV)
+        assert result["price"] > 0
+        assert result["spot_price"] == 450.0
+        assert result["strike_price"] == 460.0
+        assert result["days_to_expiry"] == 45
+        
+        # Delta should be between 0 and 1 for call
+        assert 0 <= result["delta"] <= 1
+        
+        # Gamma should be positive
+        assert result["gamma"] > 0
+
+    @pytest.mark.asyncio
+    async def test_calculate_option_price_put(self, toolkit):
+        """Test put option pricing."""
+        result = await toolkit.calculate_option_price(
+            spot_price=100.0,
+            strike_price=105.0,
+            days_to_expiry=30,
+            volatility=0.25,
+            risk_free_rate=0.05,
+            option_type="put",
+        )
+
+        assert "error" not in result
+        assert "price" in result
+        
+        # Delta should be between -1 and 0 for put
+        assert -1 <= result["delta"] <= 0
+        
+        # ITM put should have significant value
+        assert result["price"] > 0
+
+    @pytest.mark.asyncio
+    async def test_calculate_option_price_at_expiration(self, toolkit):
+        """Test option pricing at or past expiration (T=0)."""
+        # ITM call at expiration
+        result = await toolkit.calculate_option_price(
+            spot_price=110.0,
+            strike_price=100.0,
+            days_to_expiry=0,
+            volatility=0.20,
+            risk_free_rate=0.05,
+            option_type="call",
+        )
+
+        assert "error" not in result
+        # Should equal intrinsic value
+        assert result["price"] == 10.0  # 110 - 100
+        assert result["gamma"] == 0.0
+        assert result["vega"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_calculate_option_price_with_dividend(self, toolkit):
+        """Test option pricing with dividend yield."""
+        result = await toolkit.calculate_option_price(
+            spot_price=150.0,
+            strike_price=150.0,
+            days_to_expiry=90,
+            volatility=0.30,
+            risk_free_rate=0.05,
+            option_type="call",
+            dividend_yield=0.02,
+        )
+
+        assert "error" not in result
+        assert "price" in result
+        
+        # ATM call with dividend should have reasonable delta
+        # With 2% dividend yield, delta will be slightly > 0.5 for ATM call
+        assert 0.4 < result["delta"] < 0.7
+
 
 class TestFinanceAgentExecutorTemperature:
     """
@@ -493,6 +587,143 @@ class TestNVIDIAScenario:
         assert len(analysis) > 100  # Substantive response
         # Should mention NVIDIA or the ticker
         assert "NVDA" in analysis or "NVIDIA" in analysis.upper()
+
+
+class TestToolCallLogging:
+    """Tests for tool call logging functionality in executor."""
+
+    def test_init_tool_call_log(self):
+        """Test that _init_tool_call_log creates empty list."""
+        executor = FinanceAgentExecutor(llm_client=None, model="test")
+        executor._init_tool_call_log()
+        
+        assert hasattr(executor, '_tool_call_log')
+        assert executor._tool_call_log == []
+
+    def test_log_tool_call_basic(self):
+        """Test logging a basic tool call."""
+        executor = FinanceAgentExecutor(llm_client=None, model="test")
+        executor._init_tool_call_log()
+        
+        executor._log_tool_call(
+            tool_name="get_quote",
+            args={"ticker": "AAPL"},
+            result={"price": 185.50, "volume": 1000000},
+            elapsed_ms=150
+        )
+        
+        log = executor.get_tool_call_log()
+        assert len(log) == 1
+        assert log[0]["tool"] == "get_quote"
+        assert log[0]["params"] == {"ticker": "AAPL"}
+        assert "185.5" in log[0]["result"]  # JSON serializes 185.50 as 185.5
+        assert log[0]["is_error"] is False
+        assert log[0]["elapsed_ms"] == 150
+        assert "timestamp" in log[0]
+
+    def test_log_tool_call_with_error(self):
+        """Test logging a tool call that returned an error."""
+        executor = FinanceAgentExecutor(llm_client=None, model="test")
+        executor._init_tool_call_log()
+        
+        executor._log_tool_call(
+            tool_name="execute_python",
+            args={"code": "print(x)"},
+            result={"success": False, "error": "NameError: name 'x' is not defined"},
+            elapsed_ms=5
+        )
+        
+        log = executor.get_tool_call_log()
+        assert len(log) == 1
+        assert log[0]["is_error"] is True
+
+    def test_log_tool_call_result_truncation(self):
+        """Test that large results are truncated to 3000 chars."""
+        executor = FinanceAgentExecutor(llm_client=None, model="test")
+        executor._init_tool_call_log()
+        
+        # Create a large result (> 3000 chars)
+        large_result = {"data": "x" * 5000}
+        
+        executor._log_tool_call(
+            tool_name="get_financials",
+            args={"ticker": "AAPL"},
+            result=large_result,
+            elapsed_ms=200
+        )
+        
+        log = executor.get_tool_call_log()
+        assert len(log[0]["result"]) <= 3020  # 3000 + "[truncated]"
+        assert log[0]["result"].endswith("...[truncated]")
+
+    def test_log_multiple_tool_calls(self):
+        """Test logging multiple tool calls."""
+        executor = FinanceAgentExecutor(llm_client=None, model="test")
+        executor._init_tool_call_log()
+        
+        executor._log_tool_call("get_quote", {"ticker": "AAPL"}, {"price": 185}, 100)
+        executor._log_tool_call("get_quote", {"ticker": "MSFT"}, {"price": 420}, 110)
+        executor._log_tool_call("execute_python", {"code": "1+1"}, {"result": 2}, 5)
+        
+        log = executor.get_tool_call_log()
+        assert len(log) == 3
+        assert log[0]["tool"] == "get_quote"
+        assert log[1]["params"]["ticker"] == "MSFT"
+        assert log[2]["tool"] == "execute_python"
+
+    def test_get_tool_call_log_empty(self):
+        """Test get_tool_call_log returns empty list when not initialized."""
+        executor = FinanceAgentExecutor(llm_client=None, model="test")
+        
+        # Should return empty list even if _init not called
+        log = executor.get_tool_call_log()
+        assert log == []
+
+
+class TestToolCallModel:
+    """Tests for ToolCall model with result field."""
+
+    def test_tool_call_with_result(self):
+        """Test ToolCall model includes result field."""
+        from cio_agent.models import ToolCall
+        
+        tc = ToolCall(
+            tool_name="get_quote",
+            params={"ticker": "AAPL"},
+            timestamp=datetime.now(),
+            duration_ms=150,
+            success=True,
+            result='{"price": 185.50}'
+        )
+        
+        assert tc.result == '{"price": 185.50}'
+        assert tc.tool_name == "get_quote"
+        assert tc.success is True
+
+    def test_tool_call_result_optional(self):
+        """Test ToolCall result field is optional."""
+        from cio_agent.models import ToolCall
+        
+        tc = ToolCall(
+            tool_name="get_quote",
+            params={"ticker": "AAPL"},
+            timestamp=datetime.now(),
+        )
+        
+        assert tc.result is None
+
+
+class TestMessengerToolCalls:
+    """Tests for messenger tool calls extraction."""
+
+    def test_get_last_tool_calls_empty(self):
+        """Test get_last_tool_calls returns empty list when no calls made."""
+        from cio_agent.messenger import Messenger
+        
+        messenger = Messenger()
+        tool_calls = messenger.get_last_tool_calls()
+        
+        assert tool_calls == []
 
 
 if __name__ == "__main__":
