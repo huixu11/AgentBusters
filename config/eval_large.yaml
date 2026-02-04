@@ -63,8 +63,8 @@ datasets:
     limit: 12  # All 12 available scenarios
     shuffle: false
     weight: 1.0
-    stride: 1
-    max_steps: 200
+    stride: 5           # Use every 5th bar (5-minute effective timeframe)
+    max_steps: 300       # 300 * 5 = 1500 minutes ≈ 25 hours
     evaluation:
       initial_balance: 10000.0
       max_leverage: 3.0
@@ -72,7 +72,7 @@ datasets:
       price_noise_level: 0.001
       slippage_range: [0.0002, 0.0010]
       adversarial_injection_rate: 0.05
-      decision_interval: 1
+      decision_interval: 10  # Decide every 10 steps (every 50 minutes)
       funding_interval_hours: 8.0
       score_weights:
         baseline: 0.40

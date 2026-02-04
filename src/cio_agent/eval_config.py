@@ -417,7 +417,7 @@ class EvaluationConfig(BaseModel):
         """
         import re
         
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             content = f.read()
         
         # Substitute ${VAR_NAME} with environment variable values
