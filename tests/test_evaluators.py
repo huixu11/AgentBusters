@@ -455,7 +455,10 @@ class TestOptionsLLMGreeksExtraction:
     @pytest.mark.asyncio
     async def test_llm_extract_greeks_prompt_format(self, evaluator):
         """Test that _llm_extract_greeks returns expected format when client is None."""
-        # Without a client, should return empty dict and error
+        # Explicitly ensure no LLM client is available (hermetic test)
+        evaluator.llm_client = None
+        evaluator._get_llm_client = lambda: None  # Stub to prevent env-based client creation
+        
         result, error = await evaluator._llm_extract_greeks("Delta: 0.5")
         assert result == {}
         assert error == "llm_client_unavailable"
@@ -496,9 +499,10 @@ class TestOptionsLLMGreeksExtraction:
             confidence=0.8,
         )
         
-        # LLM enabled but no client - should fallback to regex
+        # Stub _get_llm_client to ensure no env-based client is created (hermetic test)
         evaluator._use_llm_extraction = True
         evaluator.llm_client = None
+        evaluator._get_llm_client = lambda: None
         extracted = await evaluator._extract_options_data(response)
         
         # Should extract via regex fallback

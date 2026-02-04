@@ -216,22 +216,12 @@ def main():
     args = parser.parse_args()
 
     # Configure logging level
+    from utils.logging import setup_logging
     if args.debug:
-        import structlog
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        )
-        # Also configure structlog for debug output
-        structlog.configure(
-            wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG),
-        )
+        setup_logging(level="DEBUG")
         print("DEBUG logging enabled")
     else:
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        )
+        setup_logging(level="INFO")
         # Suppress verbose third-party library logs
         logging.getLogger("httpx").setLevel(logging.WARNING)
         logging.getLogger("httpcore").setLevel(logging.WARNING)

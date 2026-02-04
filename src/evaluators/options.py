@@ -199,7 +199,10 @@ Example output format:
 """
 
         try:
-            raw = call_llm(
+            import asyncio
+            # Run sync LLM call in thread pool to avoid blocking event loop
+            raw = await asyncio.to_thread(
+                call_llm,
                 client=client,
                 prompt=prompt,
                 model=self._get_llm_model(),
@@ -268,7 +271,10 @@ Output format:
 """
 
         try:
-            raw = call_llm(
+            import asyncio
+            # Run sync LLM call in thread pool to avoid blocking event loop
+            raw = await asyncio.to_thread(
+                call_llm,
                 client=client,
                 prompt=prompt,
                 model=self._get_llm_model(),
@@ -347,7 +353,10 @@ Return JSON:
 """
 
         try:
-            raw = call_llm(
+            import asyncio
+            # Run sync LLM call in thread pool to avoid blocking event loop
+            raw = await asyncio.to_thread(
+                call_llm,
                 client=client,
                 prompt=prompt,
                 model=self._get_llm_model(),
@@ -592,19 +601,50 @@ Return JSON:
         if use_llm_for_greeks and self._use_llm_extraction:
             greeks_data, error = await self._llm_extract_greeks(combined_raw)
             if greeks_data and not error:
-                data.delta = greeks_data.get("delta")
-                data.gamma = greeks_data.get("gamma")
-                data.theta = greeks_data.get("theta")
-                data.vega = greeks_data.get("vega")
-                logger.info(
-                    "greeks_extracted",
-                    task_id=self.task.question_id,
-                    method="llm",
-                    delta=data.delta,
-                    gamma=data.gamma,
-                    theta=data.theta,
-                    vega=data.vega,
-                )
+                # Coerce LLM-extracted values to floats where possible
+                def _coerce_float(value: Any) -> Optional[float]:
+                    if value is None:
+                        return None
+                    try:
+                        return float(value)
+                    except (TypeError, ValueError):
+                        return None
+                
+                llm_delta = _coerce_float(greeks_data.get("delta"))
+                llm_gamma = _coerce_float(greeks_data.get("gamma"))
+                llm_theta = _coerce_float(greeks_data.get("theta"))
+                llm_vega = _coerce_float(greeks_data.get("vega"))
+                
+                # If LLM didn't provide any valid numeric Greeks, fall back fully to regex
+                if not any(v is not None for v in (llm_delta, llm_gamma, llm_theta, llm_vega)):
+                    data.delta = self._extract_greek_value(combined, "delta")
+                    data.gamma = self._extract_greek_value(combined, "gamma")
+                    data.theta = self._extract_greek_value(combined, "theta")
+                    data.vega = self._extract_greek_value(combined, "vega")
+                    logger.info(
+                        "greeks_extracted",
+                        task_id=self.task.question_id,
+                        method="regex",
+                        delta=data.delta,
+                        gamma=data.gamma,
+                        theta=data.theta,
+                        vega=data.vega,
+                    )
+                else:
+                    # Use LLM values when present; fill missing ones via regex
+                    data.delta = llm_delta if llm_delta is not None else self._extract_greek_value(combined, "delta")
+                    data.gamma = llm_gamma if llm_gamma is not None else self._extract_greek_value(combined, "gamma")
+                    data.theta = llm_theta if llm_theta is not None else self._extract_greek_value(combined, "theta")
+                    data.vega = llm_vega if llm_vega is not None else self._extract_greek_value(combined, "vega")
+                    logger.info(
+                        "greeks_extracted",
+                        task_id=self.task.question_id,
+                        method="llm+regex",
+                        delta=data.delta,
+                        gamma=data.gamma,
+                        theta=data.theta,
+                        vega=data.vega,
+                    )
             else:
                 # Fallback to regex
                 data.delta = self._extract_greek_value(combined, "delta")
