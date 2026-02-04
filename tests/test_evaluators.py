@@ -261,3 +261,171 @@ class TestPRBenchEvaluatorEdgeCases:
         result = evaluator.evaluate("Some answer", "", rubric=None)
         assert result.score >= 0.0
 
+
+class TestOptionsGreeksExtraction:
+    """Test Greeks extraction from various response formats."""
+
+    @pytest.fixture
+    def evaluator(self):
+        """Create an OptionsEvaluator instance for testing."""
+        from cio_agent.models import Task, GroundTruth, TaskCategory, TaskRubric
+        from datetime import datetime, timezone
+        
+        task = Task(
+            question_id="test_greeks",
+            category=TaskCategory.GREEKS_ANALYSIS,
+            question="Calculate Greeks",
+            ticker="SPY",
+            fiscal_year=2024,
+            simulation_date=datetime.now(timezone.utc),
+            ground_truth=GroundTruth(macro_thesis="test"),
+            rubric=TaskRubric(),
+        )
+        return OptionsEvaluator(task=task)
+
+    def test_extract_delta_colon_format(self, evaluator):
+        """Test extraction of Delta: 0.42 format."""
+        text = "The option has Delta: 0.42 and Gamma: 0.025"
+        assert evaluator._extract_greek_value(text, "delta") == 0.42
+        assert evaluator._extract_greek_value(text, "gamma") == 0.025
+
+    def test_extract_delta_equals_format(self, evaluator):
+        """Test extraction of delta = 0.42 format."""
+        text = "delta = 0.42, gamma = 0.025, theta = -0.35"
+        assert evaluator._extract_greek_value(text, "delta") == 0.42
+        assert evaluator._extract_greek_value(text, "gamma") == 0.025
+        assert evaluator._extract_greek_value(text, "theta") == -0.35
+
+    def test_extract_delta_of_format(self, evaluator):
+        """Test extraction of 'delta of 0.5' format (common in LLM responses)."""
+        text = "A delta of 0.5 means that for every $1 increase in price"
+        assert evaluator._extract_greek_value(text, "delta") == 0.5
+
+    def test_extract_delta_is_format(self, evaluator):
+        """Test extraction of 'delta is 0.42' format."""
+        text = "The calculated delta is 0.42 for this option"
+        assert evaluator._extract_greek_value(text, "delta") == 0.42
+
+    def test_extract_markdown_bold_format(self, evaluator):
+        """Test extraction from **Delta**: 0.42 markdown format."""
+        text = """
+        ### Greeks:
+        - **Delta**: 0.45
+        - **Gamma**: 0.03
+        - **Theta**: -0.25
+        - **Vega**: 0.18
+        """
+        assert evaluator._extract_greek_value(text, "delta") == 0.45
+        assert evaluator._extract_greek_value(text, "gamma") == 0.03
+        assert evaluator._extract_greek_value(text, "theta") == -0.25
+        assert evaluator._extract_greek_value(text, "vega") == 0.18
+
+    def test_extract_negative_theta(self, evaluator):
+        """Test extraction of negative theta values."""
+        text = "theta: -0.35 per day"
+        assert evaluator._extract_greek_value(text, "theta") == -0.35
+
+    def test_extract_bullet_list_format(self, evaluator):
+        """Test extraction from bullet list format."""
+        text = """
+        Option Greeks:
+        - Delta: 0.55
+        • Gamma: 0.04
+        * Theta: -0.30
+        """
+        assert evaluator._extract_greek_value(text, "delta") == 0.55
+        assert evaluator._extract_greek_value(text, "gamma") == 0.04
+        assert evaluator._extract_greek_value(text, "theta") == -0.30
+
+    def test_extract_approximately_format(self, evaluator):
+        """Test extraction with 'approximately' keyword."""
+        text = "The delta is approximately 0.48"
+        assert evaluator._extract_greek_value(text, "delta") == 0.48
+
+    def test_extract_around_format(self, evaluator):
+        """Test extraction with 'around' keyword."""
+        text = "gamma around 0.025 indicates sensitivity"
+        assert evaluator._extract_greek_value(text, "gamma") == 0.025
+
+    def test_extract_case_insensitive(self, evaluator):
+        """Test case-insensitive extraction."""
+        text1 = "DELTA: 0.42"
+        text2 = "Delta: 0.42"
+        text3 = "delta: 0.42"
+        assert evaluator._extract_greek_value(text1, "delta") == 0.42
+        assert evaluator._extract_greek_value(text2, "delta") == 0.42
+        assert evaluator._extract_greek_value(text3, "delta") == 0.42
+
+    def test_extract_real_llm_response(self, evaluator):
+        """Test extraction from a real LLM response format."""
+        text = """
+        ### Greeks Explanation:
+
+        1. **Delta**:
+           - **Interpretation**: A delta of 0.5 means that for every $1 increase 
+             in TSLA's stock price, the call option's price is expected to increase 
+             by $0.50.
+
+        2. **Gamma**:
+           - **Definition**: Gamma measures the rate of change of delta.
+           - The gamma is approximately 0.025 for this option.
+
+        3. **Theta**:
+           - theta: -0.35 per day
+
+        4. **Vega**:
+           - vega = 0.28
+        """
+        assert evaluator._extract_greek_value(text, "delta") == 0.5
+        assert evaluator._extract_greek_value(text, "gamma") == 0.025
+        assert evaluator._extract_greek_value(text, "theta") == -0.35
+        assert evaluator._extract_greek_value(text, "vega") == 0.28
+
+    def test_extract_semicolon_separated(self, evaluator):
+        """Test extraction from semicolon-separated format (like expected values)."""
+        text = "delta: 0.42; gamma: 0.025; theta: -0.35; vega: 0.28"
+        assert evaluator._extract_greek_value(text, "delta") == 0.42
+        assert evaluator._extract_greek_value(text, "gamma") == 0.025
+        assert evaluator._extract_greek_value(text, "theta") == -0.35
+        assert evaluator._extract_greek_value(text, "vega") == 0.28
+
+    def test_no_greek_found(self, evaluator):
+        """Test that None is returned when Greek is not found."""
+        text = "This text has no Greeks values"
+        assert evaluator._extract_greek_value(text, "delta") is None
+        assert evaluator._extract_greek_value(text, "gamma") is None
+
+    def test_extract_options_data_integration(self, evaluator):
+        """Test _extract_options_data method integrates Greek extraction correctly."""
+        from cio_agent.models import AgentResponse
+        
+        response = AgentResponse(
+            agent_id="test_agent",
+            task_id="test_task",
+            analysis="""
+            For the TSLA $250 call option:
+            
+            **Greeks:**
+            - Delta: 0.42
+            - Gamma: 0.025
+            - Theta: -0.35
+            - Vega: 0.28
+            
+            The iron condor strategy provides limited risk.
+            Max profit: $500
+            Max loss: $1,000
+            """,
+            recommendation="Buy the option",
+            confidence=0.8,
+        )
+        
+        extracted = evaluator._extract_options_data(response)
+        
+        assert extracted.delta == 0.42
+        assert extracted.gamma == 0.025
+        assert extracted.theta == -0.35
+        assert extracted.vega == 0.28
+        assert extracted.strategy_name == "iron condor"
+        assert extracted.max_profit == 500.0
+        assert extracted.max_loss == 1000.0
+

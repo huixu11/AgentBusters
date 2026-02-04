@@ -128,6 +128,96 @@ class OptionsEvaluator:
                 continue
         return numbers
 
+    def _extract_greek_value(self, text: str, greek_name: str) -> Optional[float]:
+        """
+        Extract a Greek value from text using multiple patterns.
+        
+        Handles various formats:
+        - "Delta: 0.42"
+        - "delta = 0.42"
+        - "delta of 0.42"
+        - "delta is 0.42"
+        - "delta: -0.35"
+        - "**Delta**: 0.42"
+        - "Delta ≈ 0.42"
+        - "Δ = 0.42" (for delta)
+        - "The gamma is approximately 0.025"
+        
+        Args:
+            text: The text to search
+            greek_name: Name of the Greek (delta, gamma, theta, vega)
+            
+        Returns:
+            Extracted float value or None if not found
+        """
+        # Greek symbols mapping
+        greek_symbols = {
+            "delta": r"[Δδ]",
+            "gamma": r"[Γγ]",
+            "theta": r"[Θθ]",
+            "vega": r"[Vv]",  # Vega doesn't have a standard Greek letter
+        }
+        
+        name_pattern = greek_name.lower()
+        symbol_pattern = greek_symbols.get(name_pattern, "")
+        
+        # Multiple regex patterns to try, ordered by specificity
+        patterns = [
+            # Pattern 1: Greek name/symbol followed by separator and number
+            # Matches: "Delta: 0.42", "delta = -0.35", "Δ = 0.42"
+            rf'(?:\*\*)?{name_pattern}(?:\*\*)?[:\s=≈]+(-?\d+\.?\d*)',
+            
+            # Pattern 2: Greek name followed by "of" or "is" and number
+            # Matches: "delta of 0.42", "delta is -0.35"
+            rf'{name_pattern}\s+(?:of|is)\s+(-?\d+\.?\d*)',
+            
+            # Pattern 3: "The <greek> is approximately/around/about <number>"
+            # Matches: "The delta is approximately 0.48", "the gamma is around 0.025"
+            rf'(?:the\s+)?{name_pattern}\s+is\s+(?:approximately|around|about|roughly|nearly|~|≈)\s*(-?\d+\.?\d*)',
+            
+            # Pattern 4: "<greek> approximately/around <number>" without "is"
+            # Matches: "gamma around 0.025", "delta approximately 0.5"
+            rf'{name_pattern}\s+(?:approximately|around|about|roughly|nearly|~|≈)\s*(-?\d+\.?\d*)',
+            
+            # Pattern 5: Greek symbol pattern (if available)
+            rf'{symbol_pattern}[:\s=≈]+(-?\d+\.?\d*)' if symbol_pattern else None,
+            
+            # Pattern 6: Number followed by Greek name (less common)
+            # Matches: "0.42 delta", "-0.35 (delta)"
+            rf'(-?\d+\.?\d*)\s*\(?{name_pattern}\)?',
+            
+            # Pattern 7: Greek in parentheses with value
+            # Matches: "(delta: 0.42)", "(Δ=0.42)"
+            rf'\({name_pattern}[:\s=]+(-?\d+\.?\d*)\)',
+            
+            # Pattern 8: Bullet or list format
+            # Matches: "- Delta: 0.42", "• Delta = 0.42"
+            rf'[-•*]\s*(?:\*\*)?{name_pattern}(?:\*\*)?[:\s=]+(-?\d+\.?\d*)',
+            
+            # Pattern 9: Table-like format with pipes
+            # Matches: "| Delta | 0.42 |"
+            rf'\|\s*{name_pattern}\s*\|\s*(-?\d+\.?\d*)\s*\|',
+        ]
+        
+        for pattern in patterns:
+            if pattern is None:
+                continue
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    value = float(match.group(1))
+                    # Sanity check: Greeks typically have reasonable ranges
+                    # Delta: -1 to 1, Gamma: 0 to ~0.1, Theta: -inf to 0 (daily), Vega: 0 to ~1
+                    if name_pattern == "delta" and abs(value) > 100:
+                        continue  # Probably not a delta value
+                    if name_pattern == "gamma" and abs(value) > 10:
+                        continue  # Probably not a gamma value
+                    return value
+                except ValueError:
+                    continue
+        
+        return None
+
     def _extract_options_data(
         self,
         response: AgentResponse,
@@ -167,27 +257,11 @@ class OptionsEvaluator:
                 data.strategy_name = strategy
                 break
 
-        # Extract Greeks using regex patterns
-
-        # Delta - match both lowercase and capitalized, with various separators
-        delta_match = re.search(r'[Dd]elta[:\s=]+(-?\d+\.?\d*)', combined)
-        if delta_match:
-            data.delta = float(delta_match.group(1))
-
-        # Gamma 
-        gamma_match = re.search(r'[Gg]amma[:\s=]+(-?\d+\.?\d*)', combined)
-        if gamma_match:
-            data.gamma = float(gamma_match.group(1))
-
-        # Theta
-        theta_match = re.search(r'[Tt]heta[:\s=]+(-?\d+\.?\d*)', combined)
-        if theta_match:
-            data.theta = float(theta_match.group(1))
-
-        # Vega
-        vega_match = re.search(r'[Vv]ega[:\s=]+(-?\d+\.?\d*)', combined)
-        if vega_match:
-            data.vega = float(vega_match.group(1))
+        # Extract Greeks using multiple regex patterns for robustness
+        data.delta = self._extract_greek_value(combined, "delta")
+        data.gamma = self._extract_greek_value(combined, "gamma")
+        data.theta = self._extract_greek_value(combined, "theta")
+        data.vega = self._extract_greek_value(combined, "vega")
 
         # Max profit
         profit_match = re.search(r'max(?:imum)?\s+profit[:\s]+\$?(-?\d+(?:,\d{3})*(?:\.\d+)?)', combined)
