@@ -372,9 +372,10 @@ def call_llm(
     """
     model = model or get_llm_model()
     
-    # Generate a fixed seed based on model name for cache bypass + reproducibility
-    # Same model always gets same seed → deterministic
-    # Different models get different seeds → bypasses OpenRouter cache
+    # Generate a fixed seed based on model name for reproducibility.
+    # - Same model + same prompt + same seed → deterministic outputs
+    # - Different models naturally have different seeds, which helps differentiate
+    #   requests (though the model name itself is the primary cache differentiator)
     model_seed = int(hashlib.md5(model.encode()).hexdigest()[:8], 16)
     
     # Estimate token count (rough: ~4 chars per token for English)
