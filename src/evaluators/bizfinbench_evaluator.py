@@ -501,10 +501,6 @@ Return JSON only:
                 ints = self._to_int_list(val)
                 if ints:
                     return ints
-        elif isinstance(extracted, list):
-            ints = self._to_int_list(extracted)
-            if ints:
-                return ints
 
         # Fallback: extract bracketed list like [1, 3, 7]
         bracket_match = re.search(r'\[([^\]]*)\]', text)
