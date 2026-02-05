@@ -404,8 +404,12 @@ def call_llm(
             model=model,
             messages=messages,
             temperature=temperature,
+            top_p=1,  # Explicit deterministic sampling
             max_tokens=max_tokens,
-            seed=model_seed,  # Model-based seed for cache bypass + reproducibility
+            seed=model_seed,  # Model-based seed for reproducibility
+            extra_headers={
+                "X-No-Cache": "true",  # Disable OpenRouter caching
+            },
         )
         return response.choices[0].message.content or ""
 
