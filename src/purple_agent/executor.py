@@ -283,19 +283,6 @@ class FinanceAgentExecutor(AgentExecutor):
                 "include_reasoning": True,
             }
         return None
-
-    def _inject_cache_bypass_nonce(self, system_prompt: str | None) -> str:
-        """
-        Inject a unique nonce into the system prompt to bypass OpenRouter cache.
-
-        Uses UUID to ensure every request is unique and never cached.
-        This prioritizes fresh responses over reproducibility.
-        """
-        from uuid import uuid4
-        nonce = f"<!-- nonce:{uuid4().hex[:8]} model:{self.model} -->"
-        if system_prompt:
-            return f"{nonce}\n{system_prompt}"
-        return nonce
     
     def _init_tool_call_log(self):
         """Initialize tool call log for current request."""
@@ -364,11 +351,8 @@ REFERENCE FILE HANDLING:
 
 Provide a comprehensive answer with specific data points."""
 
-        # Inject model-based nonce to bypass OpenRouter cache
-        effective_system_prompt = self._inject_cache_bypass_nonce(system_prompt)
-
         messages = [
-            {"role": "system", "content": effective_system_prompt},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_input}
         ]
 
@@ -466,7 +450,7 @@ Provide a comprehensive answer with specific data points."""
                         lambda: self.llm_client.messages.create(
                             model=self.model,
                             max_tokens=4000,
-                            system=effective_system_prompt,  # Cache bypass nonce applied
+                            system=system_prompt,
                             messages=messages[1:],  # Skip system message
                             tools=anthropic_tools,
                             temperature=self.temperature,
@@ -1257,9 +1241,6 @@ Respond with ONLY the task type (e.g., "options_pricing"). Nothing else."""
         # Build the prompt
         system_prompt = self._get_system_prompt(task_info["task_type"])
         user_prompt = self._build_user_prompt(user_input, task_info, financial_data)
-        
-        # Inject cache bypass nonce
-        effective_system_prompt = self._inject_cache_bypass_nonce(system_prompt)
 
         # If no LLM client, return a structured response based on data
         if self.llm_client is None:
@@ -1274,7 +1255,7 @@ Respond with ONLY the task type (e.g., "options_pricing"). Nothing else."""
                     lambda: self.llm_client.chat.completions.create(
                         model=self.model,
                         messages=[
-                            {"role": "system", "content": effective_system_prompt},
+                            {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt},
                         ],
                         temperature=self.temperature,
@@ -1289,7 +1270,7 @@ Respond with ONLY the task type (e.g., "options_pricing"). Nothing else."""
                     lambda: self.llm_client.messages.create(
                         model=self.model,
                         max_tokens=2000,
-                        system=effective_system_prompt,  # Cache bypass nonce applied
+                        system=system_prompt,
                         messages=[{"role": "user", "content": user_prompt}],
                         temperature=self.temperature,
                     )
