@@ -26,15 +26,24 @@ console = Console()
 
 # Load environment variables from .env if present so CLI picks up LLM and keys
 # Try multiple locations: current dir, script dir, parent dirs
-_env_loaded = load_dotenv()  # Default: search from current dir
-if not _env_loaded:
-    # Try to find .env relative to this script
+def _find_and_load_env():
+    """Find and load .env file from various locations."""
     _script_dir = Path(__file__).resolve().parent
-    for _search_dir in [_script_dir, _script_dir.parent, _script_dir.parent.parent]:
-        _env_file = _search_dir / ".env"
-        if _env_file.exists():
-            load_dotenv(_env_file)
-            break
+    search_paths = [
+        Path.cwd() / ".env",  # Current working directory
+        _script_dir / ".env",  # Same dir as cli.py
+        _script_dir.parent / ".env",  # src/
+        _script_dir.parent.parent / ".env",  # Project root (AgentBusters/)
+    ]
+    
+    for env_path in search_paths:
+        if env_path.exists():
+            # Use override=True to ensure .env values take precedence
+            load_dotenv(env_path, override=True)
+            return True
+    return False
+
+_env_loaded = _find_and_load_env()
 
 
 @app.command()
