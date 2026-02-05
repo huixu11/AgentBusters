@@ -161,7 +161,7 @@ class Messenger:
         """
         # Log the outgoing question
         msg_preview = message[:200] + "..." if len(message) > 200 else message
-        logger.info(f"[QUESTION] Sending to {url}: {msg_preview}")
+        logger.debug(f"[QUESTION] Sending to {url}: {msg_preview}")
 
         client = await self._get_a2a_client(url)
 
@@ -209,7 +209,7 @@ class Messenger:
 
         # Log the response
         resp_preview = outputs["response"][:200] + "..." if len(outputs["response"]) > 200 else outputs["response"]
-        logger.info(f"[RESPONSE] From {url}: {resp_preview}")
+        logger.debug(f"[RESPONSE] From {url}: {resp_preview}")
 
         return outputs["response"]
     
