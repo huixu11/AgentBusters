@@ -26,14 +26,14 @@ datasets:
   #   shuffle: false
   #   weight: 1.0
 
-  # # PRBench - Multi-domain reasoning
+  # PRBench - Multi-domain reasoning
   # - type: prbench
   #   splits: [finance, legal]
   #   limit: 15
   #   shuffle: false
   #   weight: 1.0
 
-  # # Synthetic Questions - Analytical reasoning
+  # Synthetic Questions - Analytical reasoning
   # - type: synthetic
   #   path: data/synthetic_questions/questions.json
   #   limit: 20
@@ -54,45 +54,45 @@ datasets:
   #   shuffle: false
   #   weight: 1.0
 
-  # - type: options
-  #   path: data/options/questions.json
-  #   limit: 3
-  #   shuffle: false
-  #   weight: 1.0
-
-  - type: crypto
-    path: ../agentbusters-eval-data/crypto/eval_hidden
-    download_on_missing: false
-    limit: 1
+  - type: options
+    path: data/options/questions.json
+    limit: 3
     shuffle: false
     weight: 1.0
-    stride: 5           # Use every 5th bar (effectively 5-minute bars)
-    max_steps: 300      # 300 * 5 = 1500 minutes ≈ 25 hours of data
-    evaluation:
-      initial_balance: 10000.0
-      max_leverage: 3.0
-      trading_fee: 0.0004
-      price_noise_level: 0.001
-      slippage_range: [0.0002, 0.0010]
-      adversarial_injection_rate: 0.05
-      decision_interval: 10  # Decide every 10 steps (every 50 minutes)
-      funding_interval_hours: 8.0
-      score_weights:
-        baseline: 0.50
-        noisy: 0.30
-        adversarial: 0.20
-        meta: 0.0
-      metric_weights:
-        sharpe: 0.50
-        total_return: 0.25
-        max_drawdown: 0.15
-        win_rate: 0.10
-      meta_transforms:
-        - identity
+
+  # - type: crypto
+  #   path: ../agentbusters-eval-data/crypto/eval_hidden
+  #   download_on_missing: false
+  #   limit: 1
+  #   shuffle: false
+  #   weight: 1.0
+  #   stride: 5           # Use every 5th bar (effectively 5-minute bars)
+  #   max_steps: 300      # 300 * 5 = 1500 minutes ≈ 25 hours of data
+  #   evaluation:
+  #     initial_balance: 10000.0
+  #     max_leverage: 3.0
+  #     trading_fee: 0.0004
+  #     price_noise_level: 0.001
+  #     slippage_range: [0.0002, 0.0010]
+  #     adversarial_injection_rate: 0.05
+  #     decision_interval: 10  # Decide every 10 steps (every 50 minutes)
+  #     funding_interval_hours: 8.0
+  #     score_weights:
+  #       baseline: 0.50
+  #       noisy: 0.30
+  #       adversarial: 0.20
+  #       meta: 0.0
+  #     metric_weights:
+  #       sharpe: 0.50
+  #       total_return: 0.25
+  #       max_drawdown: 0.15
+  #       win_rate: 0.10
+  #     meta_transforms:
+  #       - identity
 
 sampling:
   strategy: stratified
-  total_limit: 1
+  total_limit: 3
   seed: 42
 
 llm_eval:

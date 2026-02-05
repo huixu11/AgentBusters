@@ -102,9 +102,10 @@ class FinanceAgentExecutor(AgentExecutor):
 
         # Reasoning effort for extended thinking (o1/o3/gpt-5 style models)
         # Options: "off", "low", "medium", "high"
-        reasoning_env = os.getenv("PURPLE_REASONING_EFFORT", "high").lower()
+        # Default is "off" - only enable if your API supports reasoning parameter
+        reasoning_env = os.getenv("PURPLE_REASONING_EFFORT", "off").lower()
         if reasoning_env not in {"off", "low", "medium", "high"}:
-            reasoning_env = "medium"  # Fallback to medium for invalid values
+            reasoning_env = "off"  # Fallback to off for invalid values
         self.reasoning_effort = None if reasoning_env == "off" else reasoning_env
 
         # Always use in-process MCP servers for controlled environment
