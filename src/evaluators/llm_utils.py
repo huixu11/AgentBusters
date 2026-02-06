@@ -404,14 +404,38 @@ def call_llm(
         effective_system = f"{cache_bypass_nonce}\n{system_prompt}" if system_prompt else cache_bypass_nonce
         messages.append({"role": "system", "content": effective_system})
         messages.append({"role": "user", "content": prompt})
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            top_p=1,  # Explicit deterministic sampling
-            max_tokens=max_tokens,
-            seed=model_seed,  # Model-based seed for reproducibility
+        
+        # Newer OpenAI reasoning models (o1, o3, o4, etc.) require max_completion_tokens
+        # instead of max_tokens. Detect based on model name prefix.
+        model_lower = model.lower()
+        uses_max_completion_tokens = any(
+            model_lower.startswith(prefix) for prefix in ("o1", "o3", "o4", "o1-", "o3-", "o4-")
         )
+        
+        # Build API call kwargs based on model type
+        api_kwargs = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "top_p": 1,  # Explicit deterministic sampling
+            "seed": model_seed,  # Model-based seed for reproducibility
+        }
+        if uses_max_completion_tokens:
+            api_kwargs["max_completion_tokens"] = max_tokens
+        else:
+            api_kwargs["max_tokens"] = max_tokens
+        
+        try:
+            response = client.chat.completions.create(**api_kwargs)
+        except Exception as e:
+            # Fallback: if max_tokens is rejected, retry with max_completion_tokens
+            error_msg = str(e).lower()
+            if "max_tokens" in error_msg and "max_completion_tokens" in error_msg:
+                api_kwargs.pop("max_tokens", None)
+                api_kwargs["max_completion_tokens"] = max_tokens
+                response = client.chat.completions.create(**api_kwargs)
+            else:
+                raise
         return response.choices[0].message.content or ""
 
     if hasattr(client, "messages"):
