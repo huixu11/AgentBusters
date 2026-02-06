@@ -756,7 +756,7 @@ Respond with ONLY this JSON format:
                             model=self.model,
                             messages=[{"role": "user", "content": prompt}],
                             temperature=self.temperature,
-                            max_tokens=200,
+                            max_completion_tokens=200,
                         )
                     )
                     llm_response = response.choices[0].message.content.strip()
@@ -878,7 +878,7 @@ TICKERS (or NONE):"""
                         model=self.model,
                         messages=[{"role": "user", "content": extraction_prompt}],
                         temperature=0,
-                        max_tokens=50,
+                        max_completion_tokens=50,
                     )
                 )
                 result = response.choices[0].message.content.strip().upper()
@@ -952,7 +952,7 @@ Respond with ONLY the task type (e.g., "options_pricing"). Nothing else."""
                         model=self.model,
                         messages=[{"role": "user", "content": classification_prompt}],
                         temperature=0,
-                        max_tokens=20,
+                        max_completion_tokens=20,
                     )
                 )
                 task_type = response.choices[0].message.content.strip().lower()
