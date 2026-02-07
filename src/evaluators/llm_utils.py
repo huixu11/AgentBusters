@@ -405,22 +405,31 @@ def call_llm(
         messages.append({"role": "system", "content": effective_system})
         messages.append({"role": "user", "content": prompt})
         
-        # Newer OpenAI reasoning models (o1, o3, o4, etc.) require max_completion_tokens
-        # instead of max_tokens. Detect based on model name prefix.
+        # Newer OpenAI reasoning models (o1, o3, o4, gpt-5-nano, etc.) require special handling:
+        # - max_completion_tokens instead of max_tokens
+        # - no custom temperature (only default 1 supported)
+        # Note: gpt-5.2 and other gpt-5 models DO support temperature=0, only gpt-5-nano doesn't
         model_lower = model.lower()
-        uses_max_completion_tokens = any(
-            model_lower.startswith(prefix) for prefix in ("o1", "o3", "o4", "o1-", "o3-", "o4-")
+        is_restricted_model = any(
+            model_lower.startswith(prefix) for prefix in (
+                "o1", "o3", "o4", "o1-", "o3-", "o4-", "gpt-5-nano"
+            )
         )
         
         # Build API call kwargs based on model type
         api_kwargs = {
             "model": model,
             "messages": messages,
-            "temperature": temperature,
             "top_p": 1,  # Explicit deterministic sampling
             "seed": model_seed,  # Model-based seed for reproducibility
         }
-        if uses_max_completion_tokens:
+        
+        # Add temperature only if model supports it
+        if not is_restricted_model:
+            api_kwargs["temperature"] = temperature
+            
+        # Use correct token limit parameter
+        if is_restricted_model:
             api_kwargs["max_completion_tokens"] = max_tokens
         else:
             api_kwargs["max_tokens"] = max_tokens
@@ -428,11 +437,14 @@ def call_llm(
         try:
             response = client.chat.completions.create(**api_kwargs)
         except Exception as e:
-            # Fallback: if max_tokens is rejected, retry with max_completion_tokens
+            # Fallback: handle parameter rejections by retrying with adjusted params
             error_msg = str(e).lower()
             if "max_tokens" in error_msg and "max_completion_tokens" in error_msg:
                 api_kwargs.pop("max_tokens", None)
                 api_kwargs["max_completion_tokens"] = max_tokens
+                response = client.chat.completions.create(**api_kwargs)
+            elif "temperature" in error_msg and "does not support" in error_msg:
+                api_kwargs.pop("temperature", None)
                 response = client.chat.completions.create(**api_kwargs)
             else:
                 raise

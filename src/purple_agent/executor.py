@@ -101,6 +101,34 @@ class FinanceAgentExecutor(AgentExecutor):
 
         # Always use in-process MCP servers for controlled environment
         self.toolkit = MCPToolkit(simulation_date=simulation_date)
+        
+        # Track if model supports temperature (some reasoning models don't)
+        self._temperature_supported = True  # Will be set False on first rejection
+
+    def _is_reasoning_model(self) -> bool:
+        """Check if the model is a reasoning model that may not support temperature."""
+        model_lower = self.model.lower()
+        # o1/o3/o4 series and gpt-5-nano don't support custom temperature
+        # Note: gpt-5.2 and other gpt-5 models DO support temperature=0
+        return any(model_lower.startswith(prefix) for prefix in (
+            "o1", "o3", "o4", "o1-", "o3-", "o4-", "gpt-5-nano"
+        ))
+    
+    def _get_api_kwargs(self, **kwargs) -> dict:
+        """Build API kwargs, handling model-specific parameter restrictions."""
+        api_kwargs = dict(kwargs)
+        
+        # Handle temperature: skip if model doesn't support it
+        if "temperature" in api_kwargs:
+            if not self._temperature_supported or self._is_reasoning_model():
+                api_kwargs.pop("temperature", None)
+        
+        # Handle max_tokens: use max_completion_tokens for reasoning models
+        if "max_tokens" in api_kwargs:
+            if self._is_reasoning_model():
+                api_kwargs["max_completion_tokens"] = api_kwargs.pop("max_tokens")
+        
+        return api_kwargs
 
     async def execute(
         self,
@@ -346,16 +374,30 @@ Provide a comprehensive answer with specific data points."""
         while tool_call_count < self.MAX_TOOL_CALLS:
             try:
                 if hasattr(self.llm_client, "chat"):
-                    # OpenAI-style client
-                    response = await asyncio.to_thread(
-                        lambda: self.llm_client.chat.completions.create(
-                            model=self.model,
-                            messages=messages,
-                            tools=TOOLS,
-                            tool_choice="auto",
-                            temperature=self.temperature,
-                        )
+                    # OpenAI-style client - build kwargs with compatibility handling
+                    api_kwargs = self._get_api_kwargs(
+                        model=self.model,
+                        messages=messages,
+                        tools=TOOLS,
+                        tool_choice="auto",
+                        temperature=self.temperature,
                     )
+                    
+                    try:
+                        response = await asyncio.to_thread(
+                            lambda: self.llm_client.chat.completions.create(**api_kwargs)
+                        )
+                    except Exception as e:
+                        # Fallback: if temperature is rejected, retry without it
+                        error_msg = str(e).lower()
+                        if "temperature" in error_msg and "does not support" in error_msg:
+                            self._temperature_supported = False
+                            api_kwargs.pop("temperature", None)
+                            response = await asyncio.to_thread(
+                                lambda: self.llm_client.chat.completions.create(**api_kwargs)
+                            )
+                        else:
+                            raise
 
                     assistant_message = response.choices[0].message
 
@@ -426,16 +468,18 @@ Provide a comprehensive answer with specific data points."""
                 elif hasattr(self.llm_client, "messages"):
                     # Anthropic-style client - convert tools to Anthropic format
                     anthropic_tools = self._convert_tools_to_anthropic_format()
+                    
+                    api_kwargs = self._get_api_kwargs(
+                        model=self.model,
+                        max_tokens=4000,
+                        system=system_prompt,
+                        messages=messages[1:],  # Skip system message
+                        tools=anthropic_tools,
+                        temperature=self.temperature,
+                    )
 
                     response = await asyncio.to_thread(
-                        lambda: self.llm_client.messages.create(
-                            model=self.model,
-                            max_tokens=4000,
-                            system=system_prompt,
-                            messages=messages[1:],  # Skip system message
-                            tools=anthropic_tools,
-                            temperature=self.temperature,
-                        )
+                        lambda: self.llm_client.messages.create(**api_kwargs)
                     )
 
                     # Check for tool use
