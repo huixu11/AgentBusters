@@ -96,7 +96,8 @@ class FinanceAgentExecutor(AgentExecutor):
                 try:
                     self.temperature = float(env_temp)
                 except ValueError:
-                    self.temperature = 0.0
+                    self.temperature = 0.0  # Invalid env var, use default
+            else:
                 self.temperature = 0.0  # Default to 0 for reproducible benchmarks
 
         # Always use in-process MCP servers for controlled environment
